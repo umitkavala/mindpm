@@ -39,15 +39,40 @@ LLM: [queries mindpm] "Last session you finished the auth refactor.
 npm install -g mindpm
 ```
 
+Or run from source:
+
+```bash
+git clone https://github.com/umitkavala/mindpm.git
+cd mindpm
+npm install
+npm run build
+```
+
 ### Configure with Claude Code
 
-Add to your MCP config:
+Add to your MCP config (`~/.claude/claude_desktop_config.json` or similar):
 
 ```json
 {
   "mcpServers": {
     "mindpm": {
       "command": "mindpm",
+      "env": {
+        "MINDPM_DB_PATH": "~/.mindpm/memory.db"
+      }
+    }
+  }
+}
+```
+
+If running from source, use the built file directly:
+
+```json
+{
+  "mcpServers": {
+    "mindpm": {
+      "command": "node",
+      "args": ["/path/to/mindpm/dist/index.js"],
       "env": {
         "MINDPM_DB_PATH": "~/.mindpm/memory.db"
       }
@@ -75,6 +100,7 @@ That's it. The LLM now has access to mindpm tools. Just start talking about your
 | `create_task` | Add a task |
 | `update_task` | Update status, priority, etc. |
 | `list_tasks` | List with filters |
+| `get_task` | Full task detail with sub-tasks and notes |
 | `get_next_tasks` | Smart: highest priority, unblocked |
 
 ### Decisions
@@ -102,6 +128,7 @@ That's it. The LLM now has access to mindpm tools. Just start talking about your
 |------|-------------|
 | `query` | Read-only SQL against the database |
 | `get_project_summary` | Tasks by status, blockers, recent activity |
+| `get_blockers` | All blocked tasks with what's blocking them |
 | `search` | Full-text search across everything |
 
 ## How It Works
@@ -123,9 +150,18 @@ That's it. The LLM now has access to mindpm tools. Just start talking about your
 
 Default: `~/.mindpm/memory.db`
 
-Override with `MINDPM_DB_PATH` environment variable.
+Override with `MINDPM_DB_PATH` or `PROJECT_MEMORY_DB_PATH` environment variable.
 
 Database and tables are created automatically on first run.
+
+## Development
+
+```bash
+npm install
+npm run build       # Build with tsup
+npm run typecheck   # Type-check without emitting
+npm run dev         # Build in watch mode
+```
 
 ## License
 
