@@ -8,7 +8,7 @@ import { registerDecisionTools } from './tools/decisions.js';
 import { registerNoteTools } from './tools/notes.js';
 import { registerSessionTools } from './tools/sessions.js';
 import { registerQueryTools } from './tools/queries.js';
-import { closeDb } from './db/connection.js';
+import { closeDb, ensureDbDirectory } from './db/connection.js';
 
 const server = new McpServer(
   {
@@ -32,6 +32,7 @@ registerQueryTools(server);
 
 // Start the server
 async function main() {
+  ensureDbDirectory();
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }
