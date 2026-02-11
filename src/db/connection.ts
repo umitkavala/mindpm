@@ -14,6 +14,11 @@ function resolveDbPath(): string {
   return resolve(homedir(), '.mindpm', 'memory.db');
 }
 
+export function ensureDbDirectory(): void {
+  const dbPath = resolveDbPath();
+  mkdirSync(dirname(dbPath), { recursive: true });
+}
+
 export function getDb(): Database.Database {
   if (db) return db;
 
