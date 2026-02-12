@@ -1,6 +1,6 @@
 {
   "name": "mindpm",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Persistent project memory for LLMs via MCP. Never re-explain your project again.",
   "type": "module",
   "main": "dist/index.js",

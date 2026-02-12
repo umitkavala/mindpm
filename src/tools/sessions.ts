@@ -1,6 +1,40 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod/v4';
+import type Database from 'better-sqlite3';
 import { getDb, generateId, resolveProjectOrDefault } from '../db/queries.js';
+
+interface ActivityItem {
+  type: string;
+  id: string;
+  title: string;
+  timestamp: string;
+}
+
+function getActivitySince(db: Database.Database, projectId: string, cutoffTime: string): ActivityItem[] {
+  return db.prepare(`
+    SELECT 'task_created' as type, id, title, created_at as timestamp
+    FROM tasks
+    WHERE project_id = ? AND created_at > ?
+    UNION ALL
+    SELECT 'task_updated' as type, id, title, updated_at as timestamp
+    FROM tasks
+    WHERE project_id = ? AND updated_at > ? AND updated_at != created_at
+    UNION ALL
+    SELECT 'decision' as type, id, title, created_at as timestamp
+    FROM decisions
+    WHERE project_id = ? AND created_at > ?
+    UNION ALL
+    SELECT 'note' as type, id, substr(content, 1, 80) as title, created_at as timestamp
+    FROM notes
+    WHERE project_id = ? AND created_at > ?
+    ORDER BY timestamp DESC
+  `).all(
+    projectId, cutoffTime,
+    projectId, cutoffTime,
+    projectId, cutoffTime,
+    projectId, cutoffTime,
+  ) as ActivityItem[];
+}
 
 export function registerSessionTools(server: McpServer): void {
   server.registerTool(
@@ -22,9 +56,39 @@ export function registerSessionTools(server: McpServer): void {
       const db = getDb();
       const projectRow = db.prepare('SELECT * FROM projects WHERE id = ?').get(resolved.id);
 
-      const lastSession = db
+      let lastSession = db
         .prepare('SELECT * FROM sessions WHERE project_id = ? ORDER BY created_at DESC LIMIT 1')
         .get(resolved.id) as Record<string, any> | undefined;
+
+      const cutoffTime = lastSession?.created_at ?? '1970-01-01';
+      const recentActivity = getActivitySince(db, resolved.id, cutoffTime);
+
+      // Auto-close: create synthetic session if there's unrecorded activity
+      if (recentActivity.length > 0) {
+        const taskIds = [...new Set(
+          recentActivity
+            .filter(a => a.type === 'task_created' || a.type === 'task_updated')
+            .map(a => a.id),
+        )];
+        const decisionIds = [...new Set(
+          recentActivity.filter(a => a.type === 'decision').map(a => a.id),
+        )];
+
+        const syntheticId = generateId();
+        db.prepare(
+          `INSERT INTO sessions (id, project_id, summary, tasks_worked_on, decisions_made) VALUES (?, ?, ?, ?, ?)`,
+        ).run(
+          syntheticId,
+          resolved.id,
+          `Auto-generated: ${recentActivity.length} activities since last session`,
+          taskIds.length > 0 ? JSON.stringify(taskIds) : null,
+          decisionIds.length > 0 ? JSON.stringify(decisionIds) : null,
+        );
+
+        lastSession = db
+          .prepare('SELECT * FROM sessions WHERE project_id = ? ORDER BY created_at DESC LIMIT 1')
+          .get(resolved.id) as Record<string, any> | undefined;
+      }
 
       const activeTasks = db
         .prepare(
@@ -62,6 +126,7 @@ export function registerSessionTools(server: McpServer): void {
               when: lastSession.created_at,
             }
           : null,
+        recent_activity: recentActivity.slice(0, 20),
         task_summary: taskCounts,
         active_tasks: activeTasks,
         blocked_tasks: blockedTasks,
