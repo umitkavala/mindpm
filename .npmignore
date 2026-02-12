@@ -1,0 +1,7 @@
+src/
+*.test.ts
+*.tsbuildinfo
+.claude/
+node_modules/
+coverage/
+*.tgz
