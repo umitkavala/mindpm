@@ -13,7 +13,7 @@ import { closeDb, ensureDbDirectory } from './db/connection.js';
 const server = new McpServer(
   {
     name: 'mindpm',
-    version: '1.1.1',
+    version: '1.1.2',
   },
   {
     capabilities: {
