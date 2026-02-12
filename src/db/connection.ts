@@ -27,6 +27,8 @@ export function getDb(): Database.Database {
 
   db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
+  db.pragma('synchronous = NORMAL');
+  db.pragma('wal_autocheckpoint = 100');
   db.pragma('foreign_keys = ON');
 
   createSchema(db);
@@ -36,6 +38,7 @@ export function getDb(): Database.Database {
 
 export function closeDb(): void {
   if (db) {
+    db.pragma('wal_checkpoint(TRUNCATE)');
     db.close();
     db = null;
   }
