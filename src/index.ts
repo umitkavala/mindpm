@@ -15,7 +15,7 @@ import { Server } from 'node:http';
 const server = new McpServer(
   {
     name: 'mindpm',
-    version: '1.1.2',
+    version: '1.2.0',
   },
   {
     capabilities: {
