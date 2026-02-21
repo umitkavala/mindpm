@@ -1,4 +1,5 @@
 src/
+ui/
 *.test.ts
 *.tsbuildinfo
 .claude/
