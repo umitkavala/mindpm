@@ -9,6 +9,8 @@ import { registerNoteTools } from './tools/notes.js';
 import { registerSessionTools } from './tools/sessions.js';
 import { registerQueryTools } from './tools/queries.js';
 import { closeDb, ensureDbDirectory } from './db/connection.js';
+import { startHttpServer } from './server/http.js';
+import { Server } from 'node:http';
 
 const server = new McpServer(
   {
@@ -31,25 +33,36 @@ registerSessionTools(server);
 registerQueryTools(server);
 
 // Start the server
+let httpServer: Server | undefined;
+
 async function main() {
   ensureDbDirectory();
+
+  // Start HTTP server for Kanban UI
+  const port = parseInt(process.env.MINDPM_PORT || '3131', 10);
+  httpServer = startHttpServer(port);
+
+  // Start MCP transport
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }
 
 main().catch((error) => {
   console.error('Fatal error:', error);
+  httpServer?.close();
   closeDb();
   process.exit(1);
 });
 
 // Graceful shutdown
 process.on('SIGINT', () => {
+  httpServer?.close();
   closeDb();
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
+  httpServer?.close();
   closeDb();
   process.exit(0);
 });
