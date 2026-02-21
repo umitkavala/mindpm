@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod/v4';
 import type Database from 'better-sqlite3';
 import { getDb, generateId, resolveProjectOrDefault } from '../db/queries.js';
+import { getHttpPort } from '../server/http.js';
 
 interface ActivityItem {
   type: string;
@@ -42,7 +43,7 @@ export function registerSessionTools(server: McpServer): void {
     {
       title: 'Start Session',
       description:
-        'Begin a work session for a project. Returns the full project overview including last session\'s next_steps, active tasks, blockers, and recent decisions. Call this at the start of every conversation.',
+        'Begin a work session for a project. Returns the full project overview including last session\'s next_steps, active tasks, blockers, and recent decisions. Call this at the start of every conversation. IMPORTANT: Always show the kanban_url to the user as a clickable link so they can open the Kanban board.',
       inputSchema: {
         project: z.string().optional().describe('Project name or ID'),
       },
@@ -117,7 +118,9 @@ export function registerSessionTools(server: McpServer): void {
       // Touch the project to update its updated_at
       db.prepare('UPDATE projects SET status = status WHERE id = ?').run(resolved.id);
 
+      const port = getHttpPort();
       const result = {
+        kanban_url: port ? `http://localhost:${port}` : null,
         project: projectRow,
         last_session: lastSession
           ? {

@@ -3,7 +3,15 @@ import { readFile } from 'node:fs/promises';
 import { join, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
+import { spawn } from 'node:child_process';
 import { handleApiRequest } from './routes.js';
+
+function openBrowser(url: string): void {
+  const platform = process.platform;
+  const cmd = platform === 'win32' ? 'cmd' : platform === 'darwin' ? 'open' : 'xdg-open';
+  const args = platform === 'win32' ? ['/c', 'start', '', url] : [url];
+  spawn(cmd, args, { detached: true, stdio: 'ignore' }).unref();
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -101,6 +109,12 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse): Promise<v
   }
 }
 
+let _httpPort: number | null = null;
+
+export function getHttpPort(): number | null {
+  return _httpPort;
+}
+
 export function startHttpServer(port: number): Server {
   const server = createServer(async (req, res) => {
     try {
@@ -128,7 +142,12 @@ export function startHttpServer(port: number): Server {
   });
 
   server.listen(port, () => {
-    process.stderr.write(`[mindpm] Kanban UI available at http://localhost:${port}\n`);
+    _httpPort = port;
+    const url = `http://localhost:${port}`;
+    process.stderr.write(`[mindpm] Kanban UI available at ${url}\n`);
+    if (process.env.MINDPM_OPEN_BROWSER === '1') {
+      openBrowser(url);
+    }
   });
 
   return server;
