@@ -8,8 +8,7 @@
     onRenamed: (id: string, name: string) => void;
   }
 
-  // projects and onSelect kept for compatibility but not used in this component
-  let { projects: _projects, selectedId, onSelect: _onSelect, onRenamed }: Props = $props();
+  let { projects, selectedId, onSelect: _onSelect, onRenamed }: Props = $props();
 
   let editing = $state(false);
   let editName = $state('');

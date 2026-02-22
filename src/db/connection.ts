@@ -23,6 +23,7 @@ export function getDb(): Database.Database {
   if (db) return db;
 
   const dbPath = resolveDbPath();
+  process.stderr.write(`[mindpm] Opening database: ${dbPath}\n`);
   mkdirSync(dirname(dbPath), { recursive: true });
 
   db = new Database(dbPath);
@@ -31,8 +32,16 @@ export function getDb(): Database.Database {
   db.pragma('wal_autocheckpoint = 100');
   db.pragma('foreign_keys = ON');
 
-  createSchema(db);
-  runMigrations(db);
+  try {
+    process.stderr.write('[mindpm] Running createSchema...\n');
+    createSchema(db);
+    process.stderr.write('[mindpm] Running runMigrations...\n');
+    runMigrations(db);
+    process.stderr.write('[mindpm] Database ready.\n');
+  } catch (err) {
+    process.stderr.write(`[mindpm] Database init failed: ${err}\n`);
+    throw err;
+  }
 
   return db;
 }

@@ -103,8 +103,6 @@ export function createSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_sessions_project_id ON sessions(project_id);
     CREATE INDEX IF NOT EXISTS idx_sessions_created_at ON sessions(created_at);
 
-    CREATE INDEX IF NOT EXISTS idx_tasks_seq ON tasks(project_id, seq);
-
     CREATE INDEX IF NOT EXISTS idx_context_project_id ON context(project_id);
 
     -- Triggers for updated_at (WHEN clause prevents infinite recursion)
@@ -169,6 +167,11 @@ export function runMigrations(db: Database.Database): void {
         db.prepare('UPDATE tasks SET seq = ? WHERE id = ?').run(i + 1, t.id);
       });
     }
+  }
+
+  // Create idx_tasks_seq here (after seq column is guaranteed to exist)
+  if (!db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_tasks_seq'").get()) {
+    db.exec('CREATE INDEX idx_tasks_seq ON tasks(project_id, seq)');
   }
 
   // Add task_id to decisions if missing

@@ -119,14 +119,15 @@ export function startHttpServer(port: number): Server {
   const server = createServer(async (req, res) => {
     try {
       if (req.url?.startsWith('/api/')) {
+        process.stderr.write(`[mindpm] API request: ${req.method} ${req.url}\n`);
         await handleApiRequest(req, res);
       } else {
         await serveStatic(req, res);
       }
     } catch (err) {
-      process.stderr.write(`[mindpm] HTTP error: ${err}\n`);
+      process.stderr.write(`[mindpm] HTTP error on ${req.method} ${req.url}: ${err}\n`);
       if (!res.headersSent) {
-        sendJson(res, 500, { error: 'Internal server error' });
+        sendJson(res, 500, { error: 'Internal server error', detail: String(err) });
       }
     }
   });

@@ -227,10 +227,12 @@ const deleteTask: RouteHandler = async (_req, res, params) => {
     // Get subtask IDs
     const subtasks = db.prepare('SELECT id FROM tasks WHERE parent_task_id = ?').all(taskId) as { id: string }[];
     for (const sub of subtasks) {
+      db.prepare('DELETE FROM task_history WHERE task_id = ?').run(sub.id);
       db.prepare('DELETE FROM notes WHERE task_id = ?').run(sub.id);
       db.prepare('DELETE FROM tasks WHERE id = ?').run(sub.id);
     }
-    // Delete notes linked to this task
+    // Delete history and notes linked to this task
+    db.prepare('DELETE FROM task_history WHERE task_id = ?').run(taskId);
     db.prepare('DELETE FROM notes WHERE task_id = ?').run(taskId);
     // Delete the task
     db.prepare('DELETE FROM tasks WHERE id = ?').run(taskId);
