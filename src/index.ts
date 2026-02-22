@@ -11,11 +11,15 @@ import { registerQueryTools } from './tools/queries.js';
 import { closeDb, ensureDbDirectory } from './db/connection.js';
 import { startHttpServer } from './server/http.js';
 import { Server } from 'node:http';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const { version } = require('../package.json');
 
 const server = new McpServer(
   {
     name: 'mindpm',
-    version: '1.2.3',
+    version,
   },
   {
     capabilities: {
