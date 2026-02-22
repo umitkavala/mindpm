@@ -5,6 +5,7 @@
   import KanbanColumn from './KanbanColumn.svelte';
   import TaskModal from './TaskModal.svelte';
   import ConfirmDialog from './ConfirmDialog.svelte';
+  import FilterBar from './FilterBar.svelte';
 
   interface Props {
     project: Project;
@@ -28,13 +29,77 @@
   // DnD state
   let draggedTask: Task | null = $state(null);
 
-  // Group tasks by status
+  // Filter state
+  let searchQuery = $state('');
+  let selectedPriorities = $state(new Set<TaskPriority>());
+  let selectedTags = $state(new Set<string>());
+
+  // All unique tags across loaded tasks
+  const allTags = $derived(() => {
+    const tagSet = new Set<string>();
+    for (const task of tasks) {
+      if (!task.tags) continue;
+      try {
+        for (const tag of JSON.parse(task.tags)) tagSet.add(tag);
+      } catch {}
+    }
+    return [...tagSet].sort();
+  });
+
+  // Filtered tasks (applied before grouping by status)
+  const filteredTasks = $derived(() => {
+    let result = tasks;
+    const q = searchQuery.trim().toLowerCase();
+    if (q) {
+      result = result.filter(
+        (t) =>
+          t.title.toLowerCase().includes(q) ||
+          (t.description ?? '').toLowerCase().includes(q) ||
+          (t.short_id ?? '').toLowerCase().includes(q),
+      );
+    }
+    if (selectedPriorities.size > 0) {
+      result = result.filter((t) => selectedPriorities.has(t.priority));
+    }
+    if (selectedTags.size > 0) {
+      result = result.filter((t) => {
+        if (!t.tags) return false;
+        try {
+          const tags: string[] = JSON.parse(t.tags);
+          return tags.some((tag) => selectedTags.has(tag));
+        } catch {
+          return false;
+        }
+      });
+    }
+    return result;
+  });
+
+  // Group filtered tasks by status
   const tasksByStatus = $derived(
     COLUMNS.map((col) => ({
       ...col,
-      tasks: tasks.filter((t) => t.status === col.status),
+      tasks: filteredTasks().filter((t) => t.status === col.status),
     })),
   );
+
+  function togglePriority(p: TaskPriority) {
+    const next = new Set(selectedPriorities);
+    if (next.has(p)) next.delete(p); else next.add(p);
+    selectedPriorities = next;
+  }
+
+  function toggleTag(t: string) {
+    const next = new Set(selectedTags);
+    if (next.has(t)) next.delete(t); else next.add(t);
+    selectedTags = next;
+  }
+
+  function clearFilters() {
+    searchQuery = '';
+    selectedPriorities = new Set();
+    selectedTags = new Set();
+  }
 
   async function loadTasks() {
     loading = true;
@@ -155,6 +220,17 @@
     }
   }
 </script>
+
+<FilterBar
+  allTags={allTags()}
+  {searchQuery}
+  {selectedPriorities}
+  {selectedTags}
+  onSearchChange={(q) => { searchQuery = q; }}
+  onPriorityToggle={togglePriority}
+  onTagToggle={toggleTag}
+  onClear={clearFilters}
+/>
 
 <div class="board-wrapper">
   {#if loading}
