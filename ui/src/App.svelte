@@ -15,7 +15,9 @@
     try {
       projects = await api.getProjects();
       if (projects.length > 0 && !selectedProjectId) {
-        selectedProjectId = projects[0].id;
+        const urlParam = new URLSearchParams(window.location.search).get('project');
+        const match = urlParam ? projects.find((p) => p.id === urlParam || p.name === urlParam) : null;
+        selectedProjectId = match ? match.id : projects[0].id;
       }
     } catch (e: any) {
       error = e.message;

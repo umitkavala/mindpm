@@ -120,7 +120,7 @@ export function registerSessionTools(server: McpServer): void {
 
       const port = getHttpPort();
       const result = {
-        kanban_url: port ? `http://localhost:${port}` : null,
+        kanban_url: port ? `http://localhost:${port}?project=${resolved.id}` : null,
         project: projectRow,
         last_session: lastSession
           ? {
