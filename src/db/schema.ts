@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3';
-import { generateSlug } from '../utils/ids.js';
+import { generateSlug, generateId } from '../utils/ids.js';
 
 export function createSchema(db: Database.Database): void {
   db.exec(`
