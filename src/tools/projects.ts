@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod/v4';
 import { getDb, generateId, resolveProjectId } from '../db/queries.js';
+import { generateSlug } from '../utils/ids.js';
 
 export function registerProjectTools(server: McpServer): void {
   server.registerTool(
@@ -19,10 +20,19 @@ export function registerProjectTools(server: McpServer): void {
     async ({ name, description, tech_stack, repo_path }) => {
       const db = getDb();
       const id = generateId();
+      // Generate unique slug
+      let slug = generateSlug(name);
+      const existing = db.prepare('SELECT slug FROM projects WHERE slug LIKE ?').all(`${slug}%`) as { slug: string }[];
+      const usedSlugs = new Set(existing.map(r => r.slug));
+      let candidate = slug;
+      let n = 2;
+      while (usedSlugs.has(candidate)) candidate = slug + n++;
+      slug = candidate;
+
       try {
         db.prepare(
-          `INSERT INTO projects (id, name, description, tech_stack, repo_path) VALUES (?, ?, ?, ?, ?)`
-        ).run(id, name, description ?? null, tech_stack ? JSON.stringify(tech_stack) : null, repo_path ?? null);
+          `INSERT INTO projects (id, name, slug, description, tech_stack, repo_path) VALUES (?, ?, ?, ?, ?, ?)`
+        ).run(id, name, slug, description ?? null, tech_stack ? JSON.stringify(tech_stack) : null, repo_path ?? null);
       } catch (e: any) {
         if (e.message?.includes('UNIQUE constraint failed')) {
           return { content: [{ type: 'text' as const, text: `Project "${name}" already exists.` }], isError: true };

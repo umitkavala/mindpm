@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import { mkdirSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { homedir } from 'os';
-import { createSchema } from './schema.js';
+import { createSchema, runMigrations } from './schema.js';
 
 let db: Database.Database | null = null;
 
@@ -32,6 +32,7 @@ export function getDb(): Database.Database {
   db.pragma('foreign_keys = ON');
 
   createSchema(db);
+  runMigrations(db);
 
   return db;
 }

@@ -1,5 +1,6 @@
 import { IncomingMessage, ServerResponse } from 'node:http';
 import { getDb, generateId, resolveProjectOrDefault, resolveProjectId } from '../db/queries.js';
+import { generateSlug } from '../utils/ids.js';
 import { matchRoute, parseBody, sendJson } from './http.js';
 
 type RouteHandler = (
@@ -98,11 +99,11 @@ const listTasks: RouteHandler = async (req, res, params) => {
   const url = new URL(req.url || '/', 'http://localhost');
   const includeDone = url.searchParams.get('include_done') === 'true';
 
-  let sql = 'SELECT * FROM tasks WHERE project_id = ?';
+  let sql = 'SELECT t.*, p.slug || \'-\' || t.seq AS short_id FROM tasks t JOIN projects p ON t.project_id = p.id WHERE t.project_id = ?';
   if (!includeDone) {
-    sql += " AND status NOT IN ('done', 'cancelled')";
+    sql += " AND t.status NOT IN ('done', 'cancelled')";
   }
-  sql += " ORDER BY CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 END, created_at DESC";
+  sql += " ORDER BY CASE t.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 END, t.created_at DESC";
 
   const rows = db.prepare(sql).all(params.pid);
   sendJson(res, 200, rows);
@@ -127,12 +128,15 @@ const createTask: RouteHandler = async (req, res, params) => {
   const id = generateId();
   const priority = (body.priority as string) || 'medium';
   const tags = Array.isArray(body.tags) ? JSON.stringify(body.tags) : null;
+  const seqRow = db.prepare('SELECT COALESCE(MAX(seq), 0) + 1 AS next_seq FROM tasks WHERE project_id = ?').get(params.pid) as { next_seq: number };
+  const seq = seqRow.next_seq;
 
   db.prepare(
-    'INSERT INTO tasks (id, project_id, title, description, priority, tags, parent_task_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO tasks (id, project_id, seq, title, description, priority, tags, parent_task_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
   ).run(
     id,
     params.pid,
+    seq,
     body.title,
     (body.description as string) ?? null,
     priority,
@@ -140,7 +144,7 @@ const createTask: RouteHandler = async (req, res, params) => {
     (body.parent_task_id as string) ?? null,
   );
 
-  const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id);
+  const task = db.prepare('SELECT t.*, p.slug || \'-\' || t.seq AS short_id FROM tasks t JOIN projects p ON t.project_id = p.id WHERE t.id = ?').get(id);
   sendJson(res, 201, task);
 };
 
@@ -189,7 +193,7 @@ const updateTask: RouteHandler = async (req, res, params) => {
   sqlParams.push(params.id);
   db.prepare(`UPDATE tasks SET ${updates.join(', ')} WHERE id = ?`).run(...sqlParams);
 
-  const updated = db.prepare('SELECT * FROM tasks WHERE id = ?').get(params.id);
+  const updated = db.prepare('SELECT t.*, p.slug || \'-\' || t.seq AS short_id FROM tasks t JOIN projects p ON t.project_id = p.id WHERE t.id = ?').get(params.id);
   sendJson(res, 200, updated);
 };
 

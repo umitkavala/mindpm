@@ -26,11 +26,14 @@ export function registerTaskTools(server: McpServer): void {
 
       const db = getDb();
       const id = generateId();
+      const seqRow = db.prepare('SELECT COALESCE(MAX(seq), 0) + 1 AS next_seq FROM tasks WHERE project_id = ?').get(resolved.id) as { next_seq: number };
+      const seq = seqRow.next_seq;
       db.prepare(
-        `INSERT INTO tasks (id, project_id, title, description, priority, tags, parent_task_id) VALUES (?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO tasks (id, project_id, seq, title, description, priority, tags, parent_task_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         id,
         resolved.id,
+        seq,
         title,
         description ?? null,
         priority ?? 'medium',
@@ -38,11 +41,15 @@ export function registerTaskTools(server: McpServer): void {
         parent_task_id ?? null,
       );
 
+      const proj = db.prepare('SELECT slug FROM projects WHERE id = ?').get(resolved.id) as { slug: string } | undefined;
+      const short_id = proj?.slug ? `${proj.slug}-${seq}` : null;
+
       return {
         content: [{
           type: 'text' as const,
           text: JSON.stringify({
             task_id: id,
+            short_id,
             message: `Task created: "${title}" in ${resolved.name} (priority: ${priority ?? 'medium'})`,
           }),
         }],
@@ -149,7 +156,7 @@ export function registerTaskTools(server: McpServer): void {
         params.tag = `"${tag}"`;
       }
 
-      const sql = `SELECT * FROM tasks WHERE ${conditions.join(' AND ')} ORDER BY CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 END, created_at DESC`;
+      const sql = `SELECT t.*, p.slug || '-' || t.seq AS short_id FROM tasks t JOIN projects p ON t.project_id = p.id WHERE ${conditions.join(' AND ')} ORDER BY CASE t.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 END, t.created_at DESC`;
       const rows = db.prepare(sql).all(params);
 
       return {
@@ -169,12 +176,12 @@ export function registerTaskTools(server: McpServer): void {
     },
     async ({ task_id }) => {
       const db = getDb();
-      const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(task_id);
+      const task = db.prepare('SELECT t.*, p.slug || \'-\' || t.seq AS short_id FROM tasks t JOIN projects p ON t.project_id = p.id WHERE t.id = ?').get(task_id);
       if (!task) {
         return { content: [{ type: 'text' as const, text: `Task "${task_id}" not found.` }], isError: true };
       }
 
-      const subtasks = db.prepare('SELECT * FROM tasks WHERE parent_task_id = ?').all(task_id);
+      const subtasks = db.prepare('SELECT t.*, p.slug || \'-\' || t.seq AS short_id FROM tasks t JOIN projects p ON t.project_id = p.id WHERE t.parent_task_id = ?').all(task_id);
       const notes = db.prepare('SELECT * FROM notes WHERE task_id = ? ORDER BY created_at DESC').all(task_id);
 
       return {
@@ -203,10 +210,10 @@ export function registerTaskTools(server: McpServer): void {
       const db = getDb();
       const rows = db
         .prepare(
-          `SELECT * FROM tasks
-           WHERE project_id = ? AND status IN ('todo', 'in_progress')
-           ORDER BY CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 END,
-                    created_at ASC
+          `SELECT t.*, p.slug || '-' || t.seq AS short_id FROM tasks t JOIN projects p ON t.project_id = p.id
+           WHERE t.project_id = ? AND t.status IN ('todo', 'in_progress')
+           ORDER BY CASE t.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 END,
+                    t.created_at ASC
            LIMIT ?`
         )
         .all(resolved.id, limit ?? 5);

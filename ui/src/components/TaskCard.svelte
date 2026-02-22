@@ -48,13 +48,18 @@
 >
   <div class="card-header">
     <span class="priority-badge {priorityClass}">{task.priority}</span>
-    <button
-      class="delete-btn"
-      title="Delete task"
-      onclick={(e: MouseEvent) => { e.stopPropagation(); onDelete(task); }}
-    >
-      &times;
-    </button>
+    <div class="card-header-right">
+      {#if task.short_id}
+        <span class="task-id">{task.short_id}</span>
+      {/if}
+      <button
+        class="delete-btn"
+        title="Delete task"
+        onclick={(e: MouseEvent) => { e.stopPropagation(); onDelete(task); }}
+      >
+        &times;
+      </button>
+    </div>
   </div>
   <div class="card-title">{task.title}</div>
   {#if task.description}
@@ -92,6 +97,19 @@
     justify-content: space-between;
     align-items: center;
     margin-bottom: 6px;
+  }
+
+  .card-header-right {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .task-id {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    font-family: monospace;
+    opacity: 0.7;
   }
 
   .priority-badge {

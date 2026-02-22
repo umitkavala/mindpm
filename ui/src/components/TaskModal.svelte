@@ -91,7 +91,12 @@
 <div class="modal-backdrop" onclick={handleBackdropClick}>
   <div class="modal">
     <div class="modal-header">
-      <h2>{isEdit ? 'Edit Task' : 'New Task'}</h2>
+      <div class="modal-title">
+        <h2>{isEdit ? 'Edit Task' : 'New Task'}</h2>
+        {#if task?.short_id}
+          <span class="modal-task-id">{task.short_id}</span>
+        {/if}
+      </div>
       <button class="close-btn" onclick={onClose}>&times;</button>
     </div>
     <form onsubmit={handleSubmit}>
@@ -184,6 +189,19 @@
     max-height: 90vh;
     overflow-y: auto;
     padding: 24px;
+  }
+
+  .modal-title {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+
+  .modal-task-id {
+    font-size: 0.75rem;
+    font-family: monospace;
+    color: var(--text-muted);
+    opacity: 0.8;
   }
 
   .modal-header {

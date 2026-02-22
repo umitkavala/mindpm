@@ -1,10 +1,12 @@
 import type Database from 'better-sqlite3';
+import { generateSlug } from '../utils/ids.js';
 
 export function createSchema(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS projects (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL UNIQUE,
+      slug TEXT,
       description TEXT,
       status TEXT DEFAULT 'active' CHECK(status IN ('active', 'paused', 'completed', 'archived')),
       repo_path TEXT,
@@ -16,6 +18,7 @@ export function createSchema(db: Database.Database): void {
     CREATE TABLE IF NOT EXISTS tasks (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL REFERENCES projects(id),
+      seq INTEGER,
       title TEXT NOT NULL,
       description TEXT,
       status TEXT DEFAULT 'todo' CHECK(status IN ('todo', 'in_progress', 'blocked', 'done', 'cancelled')),
@@ -87,6 +90,8 @@ export function createSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_sessions_project_id ON sessions(project_id);
     CREATE INDEX IF NOT EXISTS idx_sessions_created_at ON sessions(created_at);
 
+    CREATE INDEX IF NOT EXISTS idx_tasks_seq ON tasks(project_id, seq);
+
     CREATE INDEX IF NOT EXISTS idx_context_project_id ON context(project_id);
 
     -- Triggers for updated_at (WHEN clause prevents infinite recursion)
@@ -114,4 +119,42 @@ export function createSchema(db: Database.Database): void {
       UPDATE context SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
     END;
   `);
+}
+
+// Idempotent migrations for columns added after initial release
+export function runMigrations(db: Database.Database): void {
+  // Add slug to projects if missing
+  const projectCols = (db.pragma('table_info(projects)') as { name: string }[]).map(c => c.name);
+  if (!projectCols.includes('slug')) {
+    db.exec('ALTER TABLE projects ADD COLUMN slug TEXT');
+    // Backfill slugs for existing projects, making each unique
+    const projects = db.prepare('SELECT id, name FROM projects').all() as { id: string; name: string }[];
+    const usedSlugs = new Set<string>();
+    for (const p of projects) {
+      let slug = generateSlug(p.name);
+      let candidate = slug;
+      let n = 2;
+      while (usedSlugs.has(candidate)) {
+        candidate = slug + n++;
+      }
+      usedSlugs.add(candidate);
+      db.prepare('UPDATE projects SET slug = ? WHERE id = ?').run(candidate, p.id);
+    }
+  }
+
+  // Add seq to tasks if missing
+  const taskCols = (db.pragma('table_info(tasks)') as { name: string }[]).map(c => c.name);
+  if (!taskCols.includes('seq')) {
+    db.exec('ALTER TABLE tasks ADD COLUMN seq INTEGER');
+    // Backfill seq per project ordered by created_at
+    const projects = db.prepare('SELECT id FROM projects').all() as { id: string }[];
+    for (const p of projects) {
+      const tasks = db.prepare(
+        'SELECT id FROM tasks WHERE project_id = ? ORDER BY created_at ASC, id ASC'
+      ).all(p.id) as { id: string }[];
+      tasks.forEach((t, i) => {
+        db.prepare('UPDATE tasks SET seq = ? WHERE id = ?').run(i + 1, t.id);
+      });
+    }
+  }
 }

@@ -1,6 +1,7 @@
 export interface Project {
   id: string;
   name: string;
+  slug: string | null;
   description: string | null;
   status: 'active' | 'paused' | 'completed' | 'archived';
   repo_path: string | null;
@@ -13,6 +14,8 @@ export interface Project {
 export interface Task {
   id: string;
   project_id: string;
+  seq: number | null;
+  short_id: string | null;
   title: string;
   description: string | null;
   status: TaskStatus;
