@@ -27,6 +27,8 @@
   }: Props = $props();
 
   let searchInputEl: HTMLInputElement | null = $state(null);
+  let tagDropdownOpen = $state(false);
+  let tagDropdownEl: HTMLDivElement | null = $state(null);
 
   $effect(() => {
     focusSearch = () => searchInputEl?.focus();
@@ -42,7 +44,19 @@
     medium: 'var(--priority-medium)',
     low: 'var(--text-muted)',
   };
+
+  function handleTagDropdownKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape') tagDropdownOpen = false;
+  }
+
+  function handleOutsideClick(e: MouseEvent) {
+    if (tagDropdownEl && !tagDropdownEl.contains(e.target as Node)) {
+      tagDropdownOpen = false;
+    }
+  }
 </script>
+
+<svelte:window onclick={handleOutsideClick} onkeydown={handleTagDropdownKeydown} />
 
 <div class="filter-bar">
   <div class="filter-search">
@@ -76,19 +90,39 @@
   </div>
 
   {#if allTags.length > 0}
-    <div class="filter-section">
+    <div class="filter-section tag-dropdown-wrapper" bind:this={tagDropdownEl}>
       <span class="filter-label">tags:</span>
-      <div class="chip-group">
-        {#each allTags as tag}
-          <button
-            class="chip tag-chip"
-            class:active={selectedTags.has(tag)}
-            onclick={() => onTagToggle(tag)}
-          >
-            #{tag}
-          </button>
-        {/each}
-      </div>
+      <button
+        class="dropdown-trigger"
+        class:active={selectedTags.size > 0}
+        onclick={(e) => { e.stopPropagation(); tagDropdownOpen = !tagDropdownOpen; }}
+      >
+        {#if selectedTags.size > 0}
+          [{selectedTags.size}] ▾
+        {:else}
+          all ▾
+        {/if}
+      </button>
+
+      {#if tagDropdownOpen}
+        <div class="tag-dropdown">
+          {#each allTags as tag}
+            <button
+              class="tag-option"
+              class:selected={selectedTags.has(tag)}
+              onclick={(e) => { e.stopPropagation(); onTagToggle(tag); }}
+            >
+              <span class="tag-checkbox">{selectedTags.has(tag) ? '✓' : ' '}</span>
+              <span class="tag-name">#{tag}</span>
+            </button>
+          {/each}
+          {#if selectedTags.size > 0}
+            <button class="tag-clear" onclick={(e) => { e.stopPropagation(); selectedTags.forEach(t => onTagToggle(t)); }}>
+              clear tags
+            </button>
+          {/if}
+        </div>
+      {/if}
     </div>
   {/if}
 
@@ -209,15 +243,102 @@
     background: color-mix(in srgb, var(--chip-color, var(--primary)) 12%, transparent);
   }
 
-  .tag-chip {
-    text-transform: none;
-    letter-spacing: 0;
-    font-weight: 600;
+  .tag-dropdown-wrapper {
+    position: relative;
   }
 
-  .tag-chip:hover,
-  .tag-chip.active {
-    --chip-color: var(--primary);
+  .dropdown-trigger {
+    font-size: 0.62rem;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 2px;
+    border: 1px solid var(--border-bright);
+    background: none;
+    color: var(--text-muted);
+    transition: border-color 0.1s, color 0.1s;
+    letter-spacing: 0.5px;
+  }
+
+  .dropdown-trigger:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+  }
+
+  .dropdown-trigger.active {
+    border-color: var(--primary);
+    color: var(--primary);
+    background: var(--primary-dim);
+  }
+
+  .tag-dropdown {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    background: var(--surface);
+    border: 1px solid var(--border-bright);
+    border-radius: var(--radius);
+    min-width: 140px;
+    z-index: 50;
+    overflow: hidden;
+  }
+
+  .tag-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 10px;
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    font-size: 0.72rem;
+    text-align: left;
+    transition: background 0.1s, color 0.1s;
+  }
+
+  .tag-option:hover {
+    background: var(--surface-2);
+    color: var(--text);
+  }
+
+  .tag-option.selected {
+    color: var(--primary);
+  }
+
+  .tag-checkbox {
+    font-size: 0.65rem;
+    color: var(--primary);
+    width: 10px;
+    text-align: center;
+    flex-shrink: 0;
+  }
+
+  .tag-option:not(.selected) .tag-checkbox {
+    color: var(--border-bright);
+  }
+
+  .tag-name {
+    flex: 1;
+  }
+
+  .tag-clear {
+    display: block;
+    width: 100%;
+    padding: 5px 10px;
+    background: none;
+    border: none;
+    border-top: 1px solid var(--border);
+    color: var(--danger);
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    text-align: left;
+    transition: background 0.1s;
+  }
+
+  .tag-clear:hover {
+    background: var(--surface-2);
   }
 
   .clear-all {
