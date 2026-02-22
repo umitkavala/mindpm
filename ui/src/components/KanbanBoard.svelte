@@ -9,9 +9,11 @@
 
   interface Props {
     project: Project;
+    triggerNewTask?: boolean;
+    onNewTaskTriggered?: () => void;
   }
 
-  let { project }: Props = $props();
+  let { project, triggerNewTask = false, onNewTaskTriggered }: Props = $props();
 
   let tasks: Task[] = $state([]);
   let loading = $state(true);
@@ -100,6 +102,32 @@
     selectedPriorities = new Set();
     selectedTags = new Set();
   }
+
+  // Expose search focus for keyboard shortcut
+  let focusSearch: (() => void) | null = $state(null);
+
+  // Global keyboard shortcuts
+  function handleBoardKeydown(e: KeyboardEvent) {
+    const tag = (e.target as HTMLElement).tagName;
+    const inInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+    if (inInput || e.ctrlKey || e.metaKey || e.altKey) return;
+
+    if (e.key === 'n' || e.key === 'N') {
+      e.preventDefault();
+      openCreateModal('todo');
+    } else if (e.key === '/') {
+      e.preventDefault();
+      focusSearch?.();
+    }
+  }
+
+  // React to triggerNewTask from command palette
+  $effect(() => {
+    if (triggerNewTask) {
+      openCreateModal('todo');
+      onNewTaskTriggered?.();
+    }
+  });
 
   async function loadTasks() {
     loading = true;
@@ -221,6 +249,8 @@
   }
 </script>
 
+<svelte:window onkeydown={handleBoardKeydown} />
+
 <FilterBar
   allTags={allTags()}
   {searchQuery}
@@ -230,6 +260,7 @@
   onPriorityToggle={togglePriority}
   onTagToggle={toggleTag}
   onClear={clearFilters}
+  bind:focusSearch
 />
 
 <div class="board-wrapper">

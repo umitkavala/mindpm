@@ -11,6 +11,7 @@
     onPriorityToggle: (p: TaskPriority) => void;
     onTagToggle: (t: string) => void;
     onClear: () => void;
+    focusSearch?: (() => void) | null;
   }
 
   let {
@@ -22,7 +23,14 @@
     onPriorityToggle,
     onTagToggle,
     onClear,
+    focusSearch = $bindable(null),
   }: Props = $props();
+
+  let searchInputEl: HTMLInputElement | null = $state(null);
+
+  $effect(() => {
+    focusSearch = () => searchInputEl?.focus();
+  });
 
   const activeCount = $derived(
     (searchQuery.trim() ? 1 : 0) + selectedPriorities.size + selectedTags.size
@@ -40,6 +48,7 @@
   <div class="filter-search">
     <span class="search-icon">/</span>
     <input
+      bind:this={searchInputEl}
       type="text"
       placeholder="search tasks..."
       value={searchQuery}
@@ -88,6 +97,12 @@
       clear [{activeCount}]
     </button>
   {/if}
+
+  <div class="shortcuts-hint">
+    <span><kbd>N</kbd> new</span>
+    <span><kbd>/</kbd> search</span>
+    <span><kbd>Ctrl K</kbd> palette</span>
+  </div>
 </div>
 
 <style>
@@ -219,5 +234,29 @@
 
   .clear-all:hover {
     color: var(--danger-hover);
+  }
+
+  .shortcuts-hint {
+    display: flex;
+    gap: 10px;
+    margin-left: auto;
+  }
+
+  .shortcuts-hint span {
+    font-size: 0.6rem;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 3px;
+  }
+
+  kbd {
+    font-family: var(--font-mono);
+    font-size: 0.58rem;
+    background: var(--surface-2);
+    border: 1px solid var(--border-bright);
+    border-radius: 2px;
+    padding: 1px 4px;
+    color: var(--text-dim);
   }
 </style>

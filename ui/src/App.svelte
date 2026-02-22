@@ -3,11 +3,14 @@
   import type { Project } from './lib/types.js';
   import ProjectSelector from './components/ProjectSelector.svelte';
   import KanbanBoard from './components/KanbanBoard.svelte';
+  import CommandPalette from './components/CommandPalette.svelte';
 
   let projects: Project[] = $state([]);
   let selectedProjectId: string | null = $state(null);
   let loading = $state(true);
   let error: string | null = $state(null);
+  let showPalette = $state(false);
+  let newTaskFromPalette = $state(false);
 
   const selectedProject = $derived(projects.find((p) => p.id === selectedProjectId) ?? null);
 
@@ -45,7 +48,25 @@
   $effect(() => {
     loadProjects();
   });
+
+  function handleGlobalKeydown(e: KeyboardEvent) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+      e.preventDefault();
+      showPalette = !showPalette;
+    }
+  }
 </script>
+
+<svelte:window onkeydown={handleGlobalKeydown} />
+
+{#if showPalette}
+  <CommandPalette
+    {projects}
+    onSelectProject={(id) => { selectedProjectId = id; }}
+    onNewTask={() => { newTaskFromPalette = true; }}
+    onClose={() => { showPalette = false; }}
+  />
+{/if}
 
 {#if loading}
   <div class="loading"><span class="prompt">&gt;</span> loading projects...</div>
@@ -64,7 +85,11 @@
     onRenamed={handleProjectRenamed}
   />
   {#if selectedProject}
-    <KanbanBoard project={selectedProject} />
+    <KanbanBoard
+      project={selectedProject}
+      triggerNewTask={newTaskFromPalette}
+      onNewTaskTriggered={() => { newTaskFromPalette = false; }}
+    />
   {/if}
 {/if}
 
