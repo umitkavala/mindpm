@@ -133,12 +133,13 @@ export function startHttpServer(port: number): Server {
   });
 
   server.on('error', (err: NodeJS.ErrnoException) => {
-    _httpPort = null; // Port failed, clear it
     if (err.code === 'EADDRINUSE') {
+      // Keep _httpPort set — the existing process on this port is still serving the Kanban UI
       process.stderr.write(
-        `[mindpm] Warning: Port ${port} is in use. Kanban UI not available. MCP server continues.\n`,
+        `[mindpm] Port ${port} already in use. Kanban UI served by existing process at http://localhost:${port}\n`,
       );
     } else {
+      _httpPort = null;
       process.stderr.write(`[mindpm] HTTP server error: ${err.message}\n`);
     }
   });
