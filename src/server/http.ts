@@ -17,12 +17,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // In bundled output (dist/index.js), UI is at dist/ui/
-// In dev (src/server/http.ts), UI is at ../../dist/ui/
-// We resolve relative to the running script's location
+// __dirname points to the directory of the actual file, not the symlink
 function resolveStaticDir(): string {
-  // process.argv[1] points to the actual script being run (dist/index.js or similar)
-  const scriptDir = dirname(process.argv[1] || __filename);
-  return join(scriptDir, 'ui');
+  return join(__dirname, 'ui');
 }
 
 const MIME_TYPES: Record<string, string> = {
