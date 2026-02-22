@@ -119,8 +119,9 @@ export function registerSessionTools(server: McpServer): void {
       db.prepare('UPDATE projects SET status = status WHERE id = ?').run(resolved.id);
 
       const port = getHttpPort();
+      const kanbanUrl = port ? `http://localhost:${port}?project=${resolved.id}` : null;
       const result = {
-        kanban_url: port ? `http://localhost:${port}?project=${resolved.id}` : null,
+        kanban_url: kanbanUrl,
         project: projectRow,
         last_session: lastSession
           ? {
@@ -137,8 +138,12 @@ export function registerSessionTools(server: McpServer): void {
         context: contextItems,
       };
 
+      const kanbanLine = kanbanUrl
+        ? `Kanban board: ${kanbanUrl}`
+        : 'Kanban board: unavailable (HTTP server not running)';
+
       return {
-        content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+        content: [{ type: 'text' as const, text: `${kanbanLine}\n\n${JSON.stringify(result, null, 2)}` }],
       };
     },
   );
