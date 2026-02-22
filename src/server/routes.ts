@@ -252,6 +252,32 @@ const getTaskHistory: RouteHandler = async (_req, res, params) => {
   sendJson(res, 200, rows);
 };
 
+// --- Session handlers ---
+
+const createSession: RouteHandler = async (req, res, params) => {
+  const db = getDb();
+  const body = await parseBody(req);
+
+  if (!body.summary || typeof body.summary !== 'string') {
+    sendJson(res, 400, { error: 'summary is required' });
+    return;
+  }
+
+  const project = db.prepare('SELECT id FROM projects WHERE id = ?').get(params.pid);
+  if (!project) {
+    sendJson(res, 404, { error: 'Project not found' });
+    return;
+  }
+
+  const id = generateId();
+  db.prepare(
+    'INSERT INTO sessions (id, project_id, summary, next_steps) VALUES (?, ?, ?, ?)',
+  ).run(id, params.pid, body.summary, (body.next_steps as string) ?? null);
+
+  const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(id);
+  sendJson(res, 201, session);
+};
+
 // --- Decision handlers ---
 
 const listDecisions: RouteHandler = async (_req, res, params) => {
@@ -266,6 +292,7 @@ const routes: Route[] = [
   { method: 'GET', pattern: '/api/projects', handler: listProjects },
   { method: 'GET', pattern: '/api/projects/:id', handler: getProject },
   { method: 'PATCH', pattern: '/api/projects/:id', handler: updateProject },
+  { method: 'POST', pattern: '/api/projects/:pid/sessions', handler: createSession },
   { method: 'GET', pattern: '/api/projects/:pid/decisions', handler: listDecisions },
   { method: 'GET', pattern: '/api/projects/:pid/tasks', handler: listTasks },
   { method: 'POST', pattern: '/api/projects/:pid/tasks', handler: createTask },
