@@ -185,6 +185,7 @@
 {#if showModal}
   <TaskModal
     task={editingTask}
+    projectId={project.id}
     {defaultStatus}
     onSave={handleSave}
     onClose={() => { showModal = false; editingTask = null; }}

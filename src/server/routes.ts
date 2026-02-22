@@ -219,12 +219,21 @@ const deleteTask: RouteHandler = async (_req, res, params) => {
   sendJson(res, 200, { message: 'Task deleted' });
 };
 
+// --- Decision handlers ---
+
+const listDecisions: RouteHandler = async (_req, res, params) => {
+  const db = getDb();
+  const rows = db.prepare('SELECT * FROM decisions WHERE project_id = ? ORDER BY created_at DESC').all(params.pid);
+  sendJson(res, 200, rows);
+};
+
 // --- Route table ---
 
 const routes: Route[] = [
   { method: 'GET', pattern: '/api/projects', handler: listProjects },
   { method: 'GET', pattern: '/api/projects/:id', handler: getProject },
   { method: 'PATCH', pattern: '/api/projects/:id', handler: updateProject },
+  { method: 'GET', pattern: '/api/projects/:pid/decisions', handler: listDecisions },
   { method: 'GET', pattern: '/api/projects/:pid/tasks', handler: listTasks },
   { method: 'POST', pattern: '/api/projects/:pid/tasks', handler: createTask },
   { method: 'PATCH', pattern: '/api/tasks/:id', handler: updateTask },

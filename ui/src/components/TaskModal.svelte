@@ -1,9 +1,11 @@
 <script lang="ts">
-  import type { Task, TaskStatus, TaskPriority } from '../lib/types.js';
+  import type { Task, TaskStatus, TaskPriority, Decision } from '../lib/types.js';
   import { PRIORITY_ORDER } from '../lib/types.js';
+  import { api } from '../lib/api.js';
 
   interface Props {
     task: Task | null;
+    projectId: string;
     defaultStatus?: TaskStatus;
     onSave: (data: {
       title: string;
@@ -15,13 +17,14 @@
     onClose: () => void;
   }
 
-  let { task, defaultStatus = 'todo', onSave, onClose }: Props = $props();
+  let { task, projectId, defaultStatus = 'todo', onSave, onClose }: Props = $props();
 
   let title = $state('');
   let description = $state('');
   let priority: TaskPriority = $state('medium');
   let status: TaskStatus = $state('todo');
   let tagsStr = $state('');
+  let decisions: Decision[] = $state([]);
 
   // Initialize form state from task prop
   $effect(() => {
@@ -37,6 +40,15 @@
       }
     } else {
       tagsStr = '';
+    }
+  });
+
+  // Load decisions when editing a task
+  $effect(() => {
+    if (task !== null) {
+      api.getDecisions(projectId).then((d) => { decisions = d; }).catch(() => { decisions = []; });
+    } else {
+      decisions = [];
     }
   });
 
@@ -127,6 +139,29 @@
         <button type="submit" class="btn-save">{isEdit ? 'Save' : 'Create'}</button>
       </div>
     </form>
+
+    {#if isEdit && decisions.length > 0}
+      <div class="decisions-section">
+        <h3 class="decisions-heading">Decisions</h3>
+        <div class="decisions-list">
+          {#each decisions as d (d.id)}
+            <div class="decision-item">
+              <div class="decision-title">{d.title}</div>
+              <div class="decision-body">{d.decision}</div>
+              {#if d.reasoning}
+                <div class="decision-reasoning">{d.reasoning}</div>
+              {/if}
+              {#if d.alternatives}
+                {@const alts = (() => { try { return JSON.parse(d.alternatives); } catch { return null; } })()}
+                {#if alts && alts.length > 0}
+                  <div class="decision-alts">Alternatives: {alts.join(', ')}</div>
+                {/if}
+              {/if}
+            </div>
+          {/each}
+        </div>
+      </div>
+    {/if}
   </div>
 </div>
 
@@ -144,7 +179,7 @@
   .modal {
     background: var(--surface);
     border-radius: var(--radius);
-    width: 460px;
+    width: 520px;
     max-width: 95vw;
     max-height: 90vh;
     overflow-y: auto;
@@ -255,5 +290,62 @@
 
   .btn-save:hover {
     background: var(--primary-hover);
+  }
+
+  .decisions-section {
+    margin-top: 24px;
+    border-top: 1px solid var(--border);
+    padding-top: 16px;
+  }
+
+  .decisions-heading {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 10px;
+  }
+
+  .decisions-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 260px;
+    overflow-y: auto;
+  }
+
+  .decision-item {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+  }
+
+  .decision-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+
+  .decision-body {
+    font-size: 0.82rem;
+    color: var(--text);
+    line-height: 1.4;
+  }
+
+  .decision-reasoning {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    margin-top: 4px;
+    line-height: 1.4;
+    font-style: italic;
+  }
+
+  .decision-alts {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    margin-top: 4px;
   }
 </style>

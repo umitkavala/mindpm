@@ -25,6 +25,17 @@ export interface Task {
   completed_at: string | null;
 }
 
+export interface Decision {
+  id: string;
+  project_id: string;
+  title: string;
+  decision: string;
+  reasoning: string | null;
+  alternatives: string | null;
+  tags: string | null;
+  created_at: string;
+}
+
 export type TaskStatus = 'todo' | 'in_progress' | 'blocked' | 'done' | 'cancelled';
 export type TaskPriority = 'critical' | 'high' | 'medium' | 'low';
 
