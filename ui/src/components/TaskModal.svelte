@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Task, TaskStatus, TaskPriority, Decision } from '../lib/types.js';
+  import type { Task, TaskStatus, TaskPriority, Decision, TaskHistoryEvent } from '../lib/types.js';
   import { PRIORITY_ORDER } from '../lib/types.js';
   import { api } from '../lib/api.js';
 
@@ -25,6 +25,7 @@
   let status: TaskStatus = $state('todo');
   let tagsStr = $state('');
   let decisions: Decision[] = $state([]);
+  let history: TaskHistoryEvent[] = $state([]);
 
   // Initialize form state from task prop
   $effect(() => {
@@ -43,16 +44,38 @@
     }
   });
 
-  // Load decisions when editing a task
+  // Load decisions and history when editing a task
   $effect(() => {
     if (task !== null) {
       api.getDecisions(projectId).then((d) => { decisions = d; }).catch(() => { decisions = []; });
+      api.getTaskHistory(task.id).then((h) => { history = h; }).catch(() => { history = []; });
     } else {
       decisions = [];
+      history = [];
     }
   });
 
   const isEdit = $derived(task !== null);
+
+  function formatHistoryEvent(event: TaskHistoryEvent): string {
+    switch (event.event) {
+      case 'created':
+        return '<b>created</b>';
+      case 'status_changed':
+        return `status <b>${event.old_value}</b> → <b>${event.new_value}</b>`;
+      case 'priority_changed':
+        return `priority <b>${event.old_value}</b> → <b>${event.new_value}</b>`;
+      case 'title_changed':
+        return `title renamed`;
+      default:
+        return event.event.replace(/_/g, ' ');
+    }
+  }
+
+  function formatTime(iso: string): string {
+    const d = new Date(iso.replace(' ', 'T') + 'Z');
+    return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  }
 
   function handleSubmit(e: Event) {
     e.preventDefault();
@@ -144,6 +167,23 @@
         <button type="submit" class="btn-save">{isEdit ? 'Save' : 'Create'}</button>
       </div>
     </form>
+
+    {#if isEdit && history.length > 0}
+      <div class="history-section">
+        <h3 class="history-heading">History</h3>
+        <div class="history-list">
+          {#each history as event (event.id)}
+            <div class="history-item">
+              <span class="history-dot"></span>
+              <div class="history-body">
+                <span class="history-event">{@html formatHistoryEvent(event)}</span>
+                <span class="history-time">{formatTime(event.created_at)}</span>
+              </div>
+            </div>
+          {/each}
+        </div>
+      </div>
+    {/if}
 
     {#if isEdit && decisions.length > 0}
       <div class="decisions-section">
@@ -322,6 +362,84 @@
   .btn-save:hover {
     background: var(--primary-hover);
     border-color: var(--primary-hover);
+  }
+
+  .history-section {
+    margin-top: 18px;
+    border-top: 1px solid var(--border);
+    padding-top: 14px;
+  }
+
+  .history-heading {
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 10px;
+  }
+
+  .history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    max-height: 180px;
+    overflow-y: auto;
+  }
+
+  .history-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 4px 0;
+    position: relative;
+  }
+
+  .history-item:not(:last-child)::before {
+    content: '';
+    position: absolute;
+    left: 4px;
+    top: 14px;
+    bottom: -4px;
+    width: 1px;
+    background: var(--border);
+  }
+
+  .history-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--border-bright);
+    border: 1px solid var(--surface);
+    flex-shrink: 0;
+    margin-top: 3px;
+  }
+
+  .history-item:first-child .history-dot {
+    background: var(--primary);
+  }
+
+  .history-body {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    flex: 1;
+  }
+
+  .history-event {
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    line-height: 1.4;
+  }
+
+  .history-event :global(b) {
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  .history-time {
+    font-size: 0.62rem;
+    color: var(--text-muted);
   }
 
   .decisions-section {

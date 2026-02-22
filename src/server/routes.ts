@@ -1,5 +1,5 @@
 import { IncomingMessage, ServerResponse } from 'node:http';
-import { getDb, generateId, resolveProjectOrDefault, resolveProjectId } from '../db/queries.js';
+import { getDb, generateId, resolveProjectOrDefault, resolveProjectId, recordTaskHistory } from '../db/queries.js';
 import { generateSlug } from '../utils/ids.js';
 import { matchRoute, parseBody, sendJson } from './http.js';
 
@@ -150,6 +150,7 @@ const createTask: RouteHandler = async (req, res, params) => {
   );
 
   const task = db.prepare('SELECT t.*, p.slug || \'-\' || t.seq AS short_id FROM tasks t JOIN projects p ON t.project_id = p.id WHERE t.id = ?').get(id);
+  recordTaskHistory(id, 'created', null, JSON.stringify({ status: priority === 'medium' ? 'todo' : priority, priority }));
   sendJson(res, 201, task);
 };
 
@@ -198,6 +199,17 @@ const updateTask: RouteHandler = async (req, res, params) => {
   sqlParams.push(params.id);
   db.prepare(`UPDATE tasks SET ${updates.join(', ')} WHERE id = ?`).run(...sqlParams);
 
+  // Record history for meaningful field changes
+  if (body.status !== undefined && body.status !== existing.status) {
+    recordTaskHistory(params.id, 'status_changed', existing.status as string, body.status as string);
+  }
+  if (body.priority !== undefined && body.priority !== existing.priority) {
+    recordTaskHistory(params.id, 'priority_changed', existing.priority as string, body.priority as string);
+  }
+  if (body.title !== undefined && body.title !== existing.title) {
+    recordTaskHistory(params.id, 'title_changed', existing.title as string, body.title as string);
+  }
+
   const updated = db.prepare('SELECT t.*, p.slug || \'-\' || t.seq AS short_id FROM tasks t JOIN projects p ON t.project_id = p.id WHERE t.id = ?').get(params.id);
   sendJson(res, 200, updated);
 };
@@ -228,6 +240,16 @@ const deleteTask: RouteHandler = async (_req, res, params) => {
   sendJson(res, 200, { message: 'Task deleted' });
 };
 
+// --- Task history handler ---
+
+const getTaskHistory: RouteHandler = async (_req, res, params) => {
+  const db = getDb();
+  const rows = db.prepare(
+    'SELECT * FROM task_history WHERE task_id = ? ORDER BY created_at ASC'
+  ).all(params.id);
+  sendJson(res, 200, rows);
+};
+
 // --- Decision handlers ---
 
 const listDecisions: RouteHandler = async (_req, res, params) => {
@@ -247,6 +269,7 @@ const routes: Route[] = [
   { method: 'POST', pattern: '/api/projects/:pid/tasks', handler: createTask },
   { method: 'PATCH', pattern: '/api/tasks/:id', handler: updateTask },
   { method: 'DELETE', pattern: '/api/tasks/:id', handler: deleteTask },
+  { method: 'GET', pattern: '/api/tasks/:id/history', handler: getTaskHistory },
 ];
 
 export async function handleApiRequest(

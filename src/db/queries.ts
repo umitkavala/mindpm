@@ -38,4 +38,16 @@ export function resolveProjectOrDefault(projectRef?: string): { id: string; name
   return getMostRecentProject();
 }
 
+export function recordTaskHistory(
+  taskId: string,
+  event: string,
+  oldValue: string | null,
+  newValue: string | null,
+): void {
+  const db = getDb();
+  db.prepare(
+    'INSERT INTO task_history (id, task_id, event, old_value, new_value) VALUES (?, ?, ?, ?, ?)'
+  ).run(generateId(), taskId, event, oldValue, newValue);
+}
+
 export { generateId, getDb };

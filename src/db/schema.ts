@@ -31,6 +31,18 @@ export function createSchema(db: Database.Database): void {
       completed_at DATETIME
     );
 
+    CREATE TABLE IF NOT EXISTS task_history (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL REFERENCES tasks(id),
+      event TEXT NOT NULL,
+      old_value TEXT,
+      new_value TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_task_history_task_id ON task_history(task_id);
+    CREATE INDEX IF NOT EXISTS idx_task_history_created_at ON task_history(created_at);
+
     CREATE TABLE IF NOT EXISTS decisions (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL REFERENCES projects(id),
@@ -156,5 +168,18 @@ export function runMigrations(db: Database.Database): void {
         db.prepare('UPDATE tasks SET seq = ? WHERE id = ?').run(i + 1, t.id);
       });
     }
+  }
+
+  // Backfill task_history created events for existing tasks (run once)
+  const historyCount = (db.prepare('SELECT COUNT(*) as n FROM task_history').get() as { n: number }).n;
+  if (historyCount === 0) {
+    const tasks = db.prepare('SELECT id, status, priority, created_at FROM tasks').all() as { id: string; status: string; priority: string; created_at: string }[];
+    const insert = db.prepare('INSERT INTO task_history (id, task_id, event, new_value, created_at) VALUES (?, ?, ?, ?, ?)');
+    const insertMany = db.transaction(() => {
+      for (const t of tasks) {
+        insert.run(generateId(), t.id, 'created', JSON.stringify({ status: t.status, priority: t.priority }), t.created_at);
+      }
+    });
+    insertMany();
   }
 }

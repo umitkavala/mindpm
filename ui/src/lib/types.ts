@@ -41,6 +41,15 @@ export interface Decision {
   created_at: string;
 }
 
+export interface TaskHistoryEvent {
+  id: string;
+  task_id: string;
+  event: string;
+  old_value: string | null;
+  new_value: string | null;
+  created_at: string;
+}
+
 export type TaskStatus = 'todo' | 'in_progress' | 'blocked' | 'done' | 'cancelled';
 export type TaskPriority = 'critical' | 'high' | 'medium' | 'low';
 
