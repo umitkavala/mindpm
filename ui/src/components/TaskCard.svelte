@@ -36,7 +36,7 @@
 </script>
 
 <div
-  class="card"
+  class="card {priorityClass}"
   class:dragging
   draggable="true"
   ondragstart={handleDragStart}
@@ -77,65 +77,70 @@
 <style>
   .card {
     background: var(--surface);
+    border: 1px solid var(--border);
+    border-left-width: 3px;
     border-radius: var(--radius);
-    padding: 10px;
-    box-shadow: var(--card-shadow);
+    padding: 8px 10px;
     cursor: grab;
-    transition: box-shadow 0.15s;
+    transition: border-color 0.15s, background 0.15s;
+    position: relative;
   }
 
+  .card.priority-critical { border-left-color: var(--priority-critical); }
+  .card.priority-high     { border-left-color: var(--priority-high); }
+  .card.priority-medium   { border-left-color: var(--priority-medium); }
+  .card.priority-low      { border-left-color: var(--border-bright); }
+
   .card:hover {
-    box-shadow: var(--card-shadow-hover);
+    background: var(--surface-2);
+    border-color: var(--border-bright);
+    border-left-color: inherit;
   }
 
   .card.dragging {
-    opacity: 0.5;
+    opacity: 0.4;
   }
 
   .card-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 6px;
+    margin-bottom: 5px;
   }
 
   .card-header-right {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 6px;
   }
 
   .task-id {
     font-size: 0.65rem;
     color: var(--text-muted);
-    font-family: monospace;
-    opacity: 0.7;
   }
 
   .priority-badge {
-    font-size: 0.65rem;
+    font-size: 0.6rem;
     font-weight: 700;
     text-transform: uppercase;
-    padding: 2px 6px;
-    border-radius: 3px;
-    color: white;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.8px;
+    color: var(--text-muted);
   }
 
-  .priority-critical { background: var(--priority-critical); }
-  .priority-high { background: var(--priority-high); color: #333; }
-  .priority-medium { background: var(--priority-medium); }
-  .priority-low { background: var(--priority-low); color: #333; }
+  .priority-badge.priority-critical { color: var(--priority-critical); }
+  .priority-badge.priority-high     { color: var(--priority-high); }
+  .priority-badge.priority-medium   { color: var(--priority-medium); }
+  .priority-badge.priority-low      { color: var(--text-muted); }
 
   .delete-btn {
     background: none;
     border: none;
     color: var(--text-muted);
-    font-size: 1.2rem;
+    font-size: 1rem;
     line-height: 1;
-    padding: 0 4px;
+    padding: 0 2px;
     opacity: 0;
-    transition: opacity 0.15s;
+    transition: opacity 0.1s;
   }
 
   .card:hover .delete-btn {
@@ -147,33 +152,37 @@
   }
 
   .card-title {
-    font-size: 0.9rem;
+    font-size: 0.8rem;
     font-weight: 500;
     word-break: break-word;
+    color: var(--text);
+    line-height: 1.4;
   }
 
   .card-desc {
-    font-size: 0.8rem;
+    font-size: 0.72rem;
     color: var(--text-muted);
     margin-top: 4px;
     overflow: hidden;
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
+    line-height: 1.4;
   }
 
   .card-tags {
     display: flex;
     flex-wrap: wrap;
     gap: 4px;
-    margin-top: 8px;
+    margin-top: 6px;
   }
 
   .tag {
-    font-size: 0.7rem;
+    font-size: 0.62rem;
     background: var(--bg);
     color: var(--text-muted);
-    padding: 2px 6px;
-    border-radius: 3px;
+    border: 1px solid var(--border);
+    padding: 1px 5px;
+    border-radius: 2px;
   }
 </style>

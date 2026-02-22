@@ -44,7 +44,7 @@
   role="list"
 >
   <div class="column-header">
-    <h3>{label} <span class="count">{tasks.length}</span></h3>
+    <h3><span class="chevron">▸</span> {label} <span class="count">[{tasks.length}]</span></h3>
     {#if status === 'todo'}
       <button class="add-btn" title="Add task" onclick={() => onAddTask(status)}>+</button>
     {/if}
@@ -59,64 +59,74 @@
 <style>
   .column {
     background: var(--column-bg);
+    border: 1px solid var(--border);
     border-radius: var(--radius);
-    width: 280px;
-    min-width: 280px;
-    max-height: calc(100vh - 70px);
+    width: 270px;
+    min-width: 270px;
+    max-height: calc(100vh - 60px);
     display: flex;
     flex-direction: column;
-    transition: background-color 0.15s;
+    transition: border-color 0.15s;
   }
 
   .column.drag-over {
-    background: #d5dbe3;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 1px var(--primary-dim);
   }
 
   .column-header {
-    padding: 10px 12px;
+    padding: 8px 10px;
     display: flex;
     align-items: center;
     justify-content: space-between;
     flex-shrink: 0;
+    border-bottom: 1px solid var(--border);
   }
 
   .column-header h3 {
-    font-size: 0.85rem;
+    font-size: 0.72rem;
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--text-muted);
+    letter-spacing: 1px;
+    color: var(--text-dim);
+  }
+
+  .chevron {
+    color: var(--primary);
+    margin-right: 4px;
   }
 
   .count {
     font-weight: 400;
     color: var(--text-muted);
     margin-left: 4px;
+    font-size: 0.68rem;
   }
 
   .add-btn {
-    background: rgba(0, 0, 0, 0.08);
-    border: none;
+    background: none;
+    border: 1px solid var(--border);
     border-radius: var(--radius-sm);
-    width: 28px;
-    height: 28px;
-    font-size: 1.2rem;
+    width: 22px;
+    height: 22px;
+    font-size: 1rem;
     color: var(--text-muted);
     display: flex;
     align-items: center;
     justify-content: center;
+    line-height: 1;
   }
 
   .add-btn:hover {
-    background: rgba(0, 0, 0, 0.15);
-    color: var(--text);
+    border-color: var(--primary);
+    color: var(--primary);
   }
 
   .card-list {
-    padding: 0 8px 8px;
+    padding: 6px;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
     overflow-y: auto;
     flex: 1;
   }

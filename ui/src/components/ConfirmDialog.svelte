@@ -39,7 +39,7 @@
   .modal-backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.5);
+    background: rgba(0, 0, 0, 0.7);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -48,21 +48,28 @@
 
   .dialog {
     background: var(--surface);
+    border: 1px solid var(--border-bright);
+    border-top: 3px solid var(--danger);
     border-radius: var(--radius);
-    padding: 24px;
-    width: 360px;
+    padding: 20px;
+    width: 340px;
     max-width: 90vw;
   }
 
   h3 {
-    font-size: 1.1rem;
-    margin-bottom: 8px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--danger);
+    margin-bottom: 10px;
   }
 
   p {
-    color: var(--text-muted);
-    font-size: 0.9rem;
-    margin-bottom: 20px;
+    color: var(--text-dim);
+    font-size: 0.78rem;
+    margin-bottom: 18px;
+    line-height: 1.5;
   }
 
   .actions {
@@ -73,27 +80,33 @@
 
   .btn-cancel,
   .btn-confirm {
-    padding: 8px 16px;
+    padding: 5px 14px;
     border-radius: var(--radius-sm);
-    font-weight: 600;
-    border: none;
+    font-weight: 700;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
   }
 
   .btn-cancel {
-    background: var(--bg);
+    background: none;
+    border: 1px solid var(--border-bright);
     color: var(--text-muted);
   }
 
   .btn-cancel:hover {
-    background: var(--border);
+    color: var(--text);
+    border-color: var(--text-muted);
   }
 
   .btn-confirm {
     background: var(--danger);
+    border: 1px solid var(--danger);
     color: white;
   }
 
   .btn-confirm:hover {
     background: var(--danger-hover);
+    border-color: var(--danger-hover);
   }
 </style>

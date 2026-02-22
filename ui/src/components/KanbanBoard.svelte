@@ -231,11 +231,18 @@
   }
 
   .board-message button {
-    padding: 6px 16px;
-    background: var(--primary);
-    color: white;
-    border: none;
+    padding: 5px 14px;
+    background: none;
+    color: var(--primary);
+    border: 1px solid var(--primary);
     border-radius: var(--radius-sm);
     font-weight: 600;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .board-message button:hover {
+    background: var(--primary-dim);
   }
 </style>

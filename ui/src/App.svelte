@@ -48,13 +48,13 @@
 </script>
 
 {#if loading}
-  <div class="loading">Loading projects...</div>
+  <div class="loading"><span class="prompt">&gt;</span> loading projects...</div>
 {:else if error}
-  <div class="error">{error}</div>
+  <div class="error"><span class="err-prefix">[error]</span> {error}</div>
 {:else if projects.length === 0}
   <div class="empty">
-    <h2>No projects yet</h2>
-    <p>Create a project using mindpm MCP tools to get started.</p>
+    <p class="empty-prompt">&gt; no projects found</p>
+    <p class="empty-hint">// create a project using mindpm MCP tools to get started</p>
   </div>
 {:else}
   <ProjectSelector
@@ -78,18 +78,31 @@
     justify-content: center;
     min-height: 100vh;
     gap: 8px;
+    font-size: 0.85rem;
+  }
+
+  .prompt {
+    color: var(--primary);
+  }
+
+  .loading {
+    color: var(--text-dim);
   }
 
   .error {
     color: var(--danger);
   }
 
-  .empty h2 {
-    font-size: 1.5rem;
-    font-weight: 600;
+  .err-prefix {
+    margin-right: 6px;
   }
 
-  .empty p {
+  .empty-prompt {
+    color: var(--text);
+  }
+
+  .empty-hint {
     color: var(--text-muted);
+    font-size: 0.75rem;
   }
 </style>

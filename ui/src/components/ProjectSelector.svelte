@@ -37,9 +37,10 @@
 </script>
 
 <header class="toolbar">
-  <div class="brand">mindpm</div>
+  <div class="brand"><span class="prompt">&gt;</span> mindpm</div>
 
   <div class="project-area">
+    <span class="project-label">project:</span>
     <select
       value={selectedId ?? ''}
       onchange={(e) => onSelect((e.target as HTMLSelectElement).value)}
@@ -50,6 +51,9 @@
     </select>
 
     {#if selected}
+      {#if selected.slug}
+        <span class="project-slug">[{selected.slug}]</span>
+      {/if}
       {#if editing}
         <input
           class="rename-input"
@@ -61,7 +65,7 @@
         />
       {:else}
         <button class="rename-btn" onclick={startEditing} title="Rename project">
-          &#9998;
+          ✎
         </button>
       {/if}
     {/if}
@@ -72,17 +76,23 @@
   .toolbar {
     display: flex;
     align-items: center;
-    gap: 16px;
-    padding: 10px 20px;
-    background: var(--primary);
-    color: white;
+    gap: 20px;
+    padding: 8px 16px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
     flex-shrink: 0;
   }
 
   .brand {
+    font-size: 0.95rem;
     font-weight: 700;
-    font-size: 1.2rem;
-    letter-spacing: -0.5px;
+    color: var(--primary);
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+  }
+
+  .prompt {
+    color: var(--text-dim);
   }
 
   .project-area {
@@ -91,41 +101,53 @@
     gap: 8px;
   }
 
+  .project-label {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+  }
+
+  .project-slug {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+  }
+
   select {
-    padding: 6px 10px;
+    padding: 4px 8px;
     border-radius: var(--radius-sm);
-    border: none;
-    background: rgba(255, 255, 255, 0.2);
-    color: white;
-    font-weight: 600;
+    border: 1px solid var(--border-bright);
+    background: var(--surface-2);
+    color: var(--text);
     appearance: auto;
   }
 
   select option {
+    background: var(--surface-2);
     color: var(--text);
-    background: white;
   }
 
   .rename-btn {
-    background: rgba(255, 255, 255, 0.2);
-    border: none;
-    color: white;
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
     border-radius: var(--radius-sm);
-    padding: 4px 8px;
-    font-size: 0.9rem;
+    padding: 2px 7px;
+    font-size: 0.85rem;
+    line-height: 1.5;
   }
 
   .rename-btn:hover {
-    background: rgba(255, 255, 255, 0.35);
+    border-color: var(--primary);
+    color: var(--primary);
   }
 
   .rename-input {
-    padding: 4px 8px;
+    padding: 3px 8px;
     border-radius: var(--radius-sm);
-    border: 2px solid white;
-    background: rgba(255, 255, 255, 0.9);
+    border: 1px solid var(--primary);
+    background: var(--surface-2);
     color: var(--text);
-    font-weight: 600;
-    width: 200px;
+    width: 180px;
+    outline: none;
+    box-shadow: 0 0 0 2px var(--primary-dim);
   }
 </style>

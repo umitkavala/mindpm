@@ -174,7 +174,7 @@
   .modal-backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.5);
+    background: rgba(0, 0, 0, 0.7);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -183,12 +183,13 @@
 
   .modal {
     background: var(--surface);
+    border: 1px solid var(--border-bright);
     border-radius: var(--radius);
     width: 520px;
     max-width: 95vw;
     max-height: 90vh;
     overflow-y: auto;
-    padding: 24px;
+    padding: 20px;
   }
 
   .modal-title {
@@ -198,48 +199,52 @@
   }
 
   .modal-task-id {
-    font-size: 0.75rem;
-    font-family: monospace;
+    font-size: 0.7rem;
     color: var(--text-muted);
-    opacity: 0.8;
   }
 
   .modal-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 20px;
+    margin-bottom: 18px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
   }
 
   .modal-header h2 {
-    font-size: 1.2rem;
-    font-weight: 600;
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--primary);
+    text-transform: uppercase;
+    letter-spacing: 1px;
   }
 
   .close-btn {
     background: none;
     border: none;
-    font-size: 1.5rem;
+    font-size: 1.2rem;
     color: var(--text-muted);
     padding: 0 4px;
+    line-height: 1;
   }
 
   .close-btn:hover {
-    color: var(--text);
+    color: var(--danger);
   }
 
   .field {
-    margin-bottom: 16px;
+    margin-bottom: 14px;
     flex: 1;
   }
 
   label {
     display: block;
-    font-size: 0.8rem;
+    font-size: 0.68rem;
     font-weight: 600;
     color: var(--text-muted);
     text-transform: uppercase;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.8px;
     margin-bottom: 4px;
   }
 
@@ -253,10 +258,10 @@
   textarea,
   select {
     width: 100%;
-    padding: 8px 10px;
-    border: 1px solid var(--border);
+    padding: 7px 9px;
+    border: 1px solid var(--border-bright);
     border-radius: var(--radius-sm);
-    background: var(--surface);
+    background: var(--bg);
     color: var(--text);
   }
 
@@ -265,7 +270,7 @@
   select:focus {
     outline: none;
     border-color: var(--primary);
-    box-shadow: 0 0 0 2px rgba(0, 121, 191, 0.2);
+    box-shadow: 0 0 0 2px var(--primary-dim);
   }
 
   textarea {
@@ -281,89 +286,99 @@
     display: flex;
     justify-content: flex-end;
     gap: 8px;
-    margin-top: 20px;
+    margin-top: 18px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
   }
 
   .btn-cancel,
   .btn-save {
-    padding: 8px 16px;
+    padding: 6px 14px;
     border-radius: var(--radius-sm);
     font-weight: 600;
-    border: none;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
   }
 
   .btn-cancel {
-    background: var(--bg);
+    background: none;
+    border: 1px solid var(--border-bright);
     color: var(--text-muted);
   }
 
   .btn-cancel:hover {
-    background: var(--border);
+    border-color: var(--text-muted);
+    color: var(--text);
   }
 
   .btn-save {
     background: var(--primary);
-    color: white;
+    border: 1px solid var(--primary);
+    color: #0d0d0d;
+    font-weight: 700;
   }
 
   .btn-save:hover {
     background: var(--primary-hover);
+    border-color: var(--primary-hover);
   }
 
   .decisions-section {
-    margin-top: 24px;
+    margin-top: 18px;
     border-top: 1px solid var(--border);
-    padding-top: 16px;
+    padding-top: 14px;
   }
 
   .decisions-heading {
-    font-size: 0.75rem;
-    font-weight: 600;
+    font-size: 0.65rem;
+    font-weight: 700;
     color: var(--text-muted);
     text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin-bottom: 10px;
+    letter-spacing: 1px;
+    margin-bottom: 8px;
   }
 
   .decisions-list {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    max-height: 260px;
+    gap: 6px;
+    max-height: 240px;
     overflow-y: auto;
   }
 
   .decision-item {
     background: var(--bg);
     border: 1px solid var(--border);
+    border-left: 3px solid var(--border-bright);
     border-radius: var(--radius-sm);
-    padding: 10px 12px;
+    padding: 8px 10px;
   }
 
   .decision-title {
-    font-size: 0.85rem;
-    font-weight: 600;
+    font-size: 0.78rem;
+    font-weight: 700;
     color: var(--text);
-    margin-bottom: 4px;
+    margin-bottom: 3px;
   }
 
   .decision-body {
-    font-size: 0.82rem;
-    color: var(--text);
+    font-size: 0.75rem;
+    color: var(--text-dim);
     line-height: 1.4;
   }
 
   .decision-reasoning {
-    font-size: 0.78rem;
+    font-size: 0.7rem;
     color: var(--text-muted);
-    margin-top: 4px;
+    margin-top: 3px;
     line-height: 1.4;
     font-style: italic;
   }
 
   .decision-alts {
-    font-size: 0.78rem;
+    font-size: 0.7rem;
     color: var(--text-muted);
-    margin-top: 4px;
+    margin-top: 3px;
   }
 </style>
