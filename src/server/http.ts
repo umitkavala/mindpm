@@ -116,6 +116,9 @@ export function getHttpPort(): number | null {
 }
 
 export function startHttpServer(port: number): Server {
+  // Set optimistically so getHttpPort() works immediately for tools called right after startup
+  _httpPort = port;
+
   const server = createServer(async (req, res) => {
     try {
       if (req.url?.startsWith('/api/')) {
@@ -132,6 +135,7 @@ export function startHttpServer(port: number): Server {
   });
 
   server.on('error', (err: NodeJS.ErrnoException) => {
+    _httpPort = null; // Port failed, clear it
     if (err.code === 'EADDRINUSE') {
       process.stderr.write(
         `[mindpm] Warning: Port ${port} is in use. Kanban UI not available. MCP server continues.\n`,
@@ -142,7 +146,6 @@ export function startHttpServer(port: number): Server {
   });
 
   server.listen(port, () => {
-    _httpPort = port;
     const url = `http://localhost:${port}`;
     process.stderr.write(`[mindpm] Kanban UI available at ${url}\n`);
     if (process.env.MINDPM_OPEN_BROWSER === '1') {
