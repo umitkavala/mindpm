@@ -31,6 +31,18 @@ LLM: [queries mindpm] "Last session you finished the auth refactor.
 - **Context** — key-value pairs (tech stack, conventions, config)
 - **Sessions** — what was done, what's next
 
+## Kanban Board
+
+mindpm includes a built-in Kanban UI. When the MCP server starts, it serves a web interface at `http://localhost:3131`.
+
+Every `start_session` call returns a direct link to your project's board:
+
+```
+Kanban board: http://localhost:3131?project=<project-id>
+```
+
+The port is configurable via the `MINDPM_PORT` environment variable.
+
 ## Setup
 
 ### Install
@@ -58,7 +70,8 @@ Add to your MCP config (`~/.claude/claude_desktop_config.json` or similar):
     "mindpm": {
       "command": "mindpm",
       "env": {
-        "MINDPM_DB_PATH": "~/.mindpm/memory.db"
+        "MINDPM_DB_PATH": "~/.mindpm/memory.db",
+        "MINDPM_PORT": "3131"
       }
     }
   }
