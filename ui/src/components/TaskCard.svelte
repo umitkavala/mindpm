@@ -3,12 +3,13 @@
 
   interface Props {
     task: Task;
+    subtaskCount?: number;
     onEdit: (task: Task) => void;
     onDelete: (task: Task) => void;
     onDragStart: (e: DragEvent, task: Task) => void;
   }
 
-  let { task, onEdit, onDelete, onDragStart }: Props = $props();
+  let { task, subtaskCount = 0, onEdit, onDelete, onDragStart }: Props = $props();
 
   let dragging = $state(false);
 
@@ -22,8 +23,17 @@
   }
 
   const tags = $derived(parseTags(task.tags));
-
   const priorityClass = $derived(`priority-${task.priority}`);
+
+  const isBlocked = $derived(() => {
+    if (!task.blocked_by) return false;
+    try {
+      const ids = JSON.parse(task.blocked_by);
+      return Array.isArray(ids) && ids.length > 0;
+    } catch {
+      return false;
+    }
+  });
 
   function handleDragStart(e: DragEvent) {
     dragging = true;
@@ -70,6 +80,16 @@
       {#each tags as tag}
         <span class="tag">{tag}</span>
       {/each}
+    </div>
+  {/if}
+  {#if isBlocked() || subtaskCount > 0}
+    <div class="card-footer">
+      {#if isBlocked()}
+        <span class="badge badge-blocked">⊘ blocked</span>
+      {/if}
+      {#if subtaskCount > 0}
+        <span class="badge badge-subtasks">⑂ {subtaskCount}</span>
+      {/if}
     </div>
   {/if}
 </div>
@@ -184,5 +204,34 @@
     border: 1px solid var(--border);
     padding: 1px 5px;
     border-radius: 2px;
+  }
+
+  .card-footer {
+    display: flex;
+    gap: 6px;
+    margin-top: 6px;
+    flex-wrap: wrap;
+  }
+
+  .badge {
+    font-size: 0.6rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 1px 5px;
+    border-radius: 2px;
+    border: 1px solid;
+  }
+
+  .badge-blocked {
+    color: var(--priority-critical);
+    border-color: var(--priority-critical);
+    background: color-mix(in srgb, var(--priority-critical) 10%, transparent);
+  }
+
+  .badge-subtasks {
+    color: var(--text-muted);
+    border-color: var(--border-bright);
+    background: none;
   }
 </style>

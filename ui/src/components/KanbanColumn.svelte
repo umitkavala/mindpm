@@ -6,6 +6,7 @@
     status: TaskStatus;
     label: string;
     tasks: Task[];
+    subtaskCounts: Map<string, number>;
     onEdit: (task: Task) => void;
     onDelete: (task: Task) => void;
     onDragStart: (e: DragEvent, task: Task) => void;
@@ -13,7 +14,7 @@
     onAddTask: (status: TaskStatus) => void;
   }
 
-  let { status, label, tasks, onEdit, onDelete, onDragStart, onDrop, onAddTask }: Props = $props();
+  let { status, label, tasks, subtaskCounts, onEdit, onDelete, onDragStart, onDrop, onAddTask }: Props = $props();
 
   let dragOver = $state(false);
 
@@ -51,7 +52,7 @@
   </div>
   <div class="card-list">
     {#each tasks as task (task.id)}
-      <TaskCard {task} {onEdit} {onDelete} {onDragStart} />
+      <TaskCard {task} subtaskCount={subtaskCounts.get(task.id) ?? 0} {onEdit} {onDelete} {onDragStart} />
     {/each}
   </div>
 </div>

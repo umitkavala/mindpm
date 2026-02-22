@@ -36,6 +36,17 @@
   let selectedPriorities = $state(new Set<TaskPriority>());
   let selectedTags = $state(new Set<string>());
 
+  // Sub-task counts: parent task id → number of children
+  const subtaskCounts = $derived(() => {
+    const map = new Map<string, number>();
+    for (const task of tasks) {
+      if (task.parent_task_id) {
+        map.set(task.parent_task_id, (map.get(task.parent_task_id) ?? 0) + 1);
+      }
+    }
+    return map;
+  });
+
   // All unique tags across loaded tasks
   const allTags = $derived(() => {
     const tagSet = new Set<string>();
@@ -278,6 +289,7 @@
           status={column.status}
           label={column.label}
           tasks={column.tasks}
+          subtaskCounts={subtaskCounts()}
           onEdit={openEditModal}
           onDelete={confirmDelete}
           onDragStart={handleDragStart}
