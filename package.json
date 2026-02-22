@@ -8,6 +8,7 @@
     "mindpm": "dist/index.js"
   },
   "scripts": {
+    "prepublishOnly": "npm run build",
     "build": "tsup src/index.ts --format esm --dts --clean && npm run build:ui",
     "build:ui": "cd ui && npm install && npm run build",
     "dev": "tsup src/index.ts --format esm --watch",
