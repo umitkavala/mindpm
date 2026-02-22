@@ -46,6 +46,7 @@ export function createSchema(db: Database.Database): void {
     CREATE TABLE IF NOT EXISTS decisions (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL REFERENCES projects(id),
+      task_id TEXT REFERENCES tasks(id),
       title TEXT NOT NULL,
       decision TEXT NOT NULL,
       reasoning TEXT,
@@ -168,6 +169,12 @@ export function runMigrations(db: Database.Database): void {
         db.prepare('UPDATE tasks SET seq = ? WHERE id = ?').run(i + 1, t.id);
       });
     }
+  }
+
+  // Add task_id to decisions if missing
+  const decisionCols = (db.pragma('table_info(decisions)') as { name: string }[]).map(c => c.name);
+  if (!decisionCols.includes('task_id')) {
+    db.exec('ALTER TABLE decisions ADD COLUMN task_id TEXT REFERENCES tasks(id)');
   }
 
   // Backfill task_history created events for existing tasks (run once)

@@ -33,6 +33,7 @@ export interface Task {
 export interface Decision {
   id: string;
   project_id: string;
+  task_id: string | null;
   title: string;
   decision: string;
   reasoning: string | null;

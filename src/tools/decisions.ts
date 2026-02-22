@@ -11,6 +11,7 @@ export function registerDecisionTools(server: McpServer): void {
         'Record a decision with reasoning and alternatives considered. Proactively use this when the user makes a technical decision, chooses between options, or settles a debate.',
       inputSchema: {
         project: z.string().optional().describe('Project name or ID'),
+        task_id: z.string().optional().describe('Task ID to associate this decision with (omit for project-level)'),
         title: z.string().describe('Short title for the decision'),
         decision: z.string().describe('What was decided'),
         reasoning: z.string().optional().describe('Why this was decided'),
@@ -18,7 +19,7 @@ export function registerDecisionTools(server: McpServer): void {
         tags: z.array(z.string()).optional().describe('Tags like "architecture", "database", "api"'),
       },
     },
-    async ({ project, title, decision, reasoning, alternatives, tags }) => {
+    async ({ project, task_id, title, decision, reasoning, alternatives, tags }) => {
       const resolved = resolveProjectOrDefault(project);
       if (!resolved) {
         return { content: [{ type: 'text' as const, text: project ? `Project "${project}" not found.` : 'No active projects found. Create a project first.' }], isError: true };
@@ -27,10 +28,11 @@ export function registerDecisionTools(server: McpServer): void {
       const db = getDb();
       const id = generateId();
       db.prepare(
-        `INSERT INTO decisions (id, project_id, title, decision, reasoning, alternatives, tags) VALUES (?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO decisions (id, project_id, task_id, title, decision, reasoning, alternatives, tags) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         id,
         resolved.id,
+        task_id ?? null,
         title,
         decision,
         reasoning ?? null,
@@ -38,10 +40,11 @@ export function registerDecisionTools(server: McpServer): void {
         tags ? JSON.stringify(tags) : null,
       );
 
+      const scope = task_id ? `task ${task_id} in ${resolved.name}` : resolved.name;
       return {
         content: [{
           type: 'text' as const,
-          text: JSON.stringify({ decision_id: id, message: `Decision logged: "${title}" in ${resolved.name}` }),
+          text: JSON.stringify({ decision_id: id, message: `Decision logged: "${title}" in ${scope}` }),
         }],
       };
     },

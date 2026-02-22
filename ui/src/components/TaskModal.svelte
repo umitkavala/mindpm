@@ -56,6 +56,8 @@
   });
 
   const isEdit = $derived(task !== null);
+  const taskDecisions = $derived(decisions.filter(d => d.task_id === task?.id));
+  const projectDecisions = $derived(decisions.filter(d => d.task_id === null));
 
   function formatHistoryEvent(event: TaskHistoryEvent): string {
     switch (event.event) {
@@ -70,6 +72,11 @@
       default:
         return event.event.replace(/_/g, ' ');
     }
+  }
+
+  function renderDecisionAlts(altsStr: string | null): string[] {
+    if (!altsStr) return [];
+    try { return JSON.parse(altsStr); } catch { return []; }
   }
 
   function formatTime(iso: string): string {
@@ -108,6 +115,19 @@
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
+
+{#snippet decisionItem(d: Decision)}
+  <div class="decision-item">
+    <div class="decision-title">{d.title}</div>
+    <div class="decision-body">{d.decision}</div>
+    {#if d.reasoning}
+      <div class="decision-reasoning">{d.reasoning}</div>
+    {/if}
+    {#each renderDecisionAlts(d.alternatives) as alt, i}
+      {#if i === 0}<div class="decision-alts">Alternatives: {renderDecisionAlts(d.alternatives).join(', ')}</div>{/if}
+    {/each}
+  </div>
+{/snippet}
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -185,26 +205,24 @@
       </div>
     {/if}
 
-    {#if isEdit && decisions.length > 0}
+    {#if isEdit && (taskDecisions.length > 0 || projectDecisions.length > 0)}
       <div class="decisions-section">
-        <h3 class="decisions-heading">Decisions</h3>
-        <div class="decisions-list">
-          {#each decisions as d (d.id)}
-            <div class="decision-item">
-              <div class="decision-title">{d.title}</div>
-              <div class="decision-body">{d.decision}</div>
-              {#if d.reasoning}
-                <div class="decision-reasoning">{d.reasoning}</div>
-              {/if}
-              {#if d.alternatives}
-                {@const alts = (() => { try { return JSON.parse(d.alternatives); } catch { return null; } })()}
-                {#if alts && alts.length > 0}
-                  <div class="decision-alts">Alternatives: {alts.join(', ')}</div>
-                {/if}
-              {/if}
-            </div>
-          {/each}
-        </div>
+        {#if taskDecisions.length > 0}
+          <h3 class="decisions-heading">Task Decisions</h3>
+          <div class="decisions-list">
+            {#each taskDecisions as d (d.id)}
+              {@render decisionItem(d)}
+            {/each}
+          </div>
+        {/if}
+        {#if projectDecisions.length > 0}
+          <h3 class="decisions-heading" class:spaced={taskDecisions.length > 0}>Project Decisions</h3>
+          <div class="decisions-list">
+            {#each projectDecisions as d (d.id)}
+              {@render decisionItem(d)}
+            {/each}
+          </div>
+        {/if}
       </div>
     {/if}
   </div>
@@ -455,6 +473,10 @@
     text-transform: uppercase;
     letter-spacing: 1px;
     margin-bottom: 8px;
+  }
+
+  .decisions-heading.spaced {
+    margin-top: 12px;
   }
 
   .decisions-list {
