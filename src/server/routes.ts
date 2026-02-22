@@ -22,12 +22,17 @@ const listProjects: RouteHandler = async (_req, res) => {
   const url = new URL(_req.url || '/', 'http://localhost');
   const status = url.searchParams.get('status');
 
-  let rows;
-  if (status) {
-    rows = db.prepare('SELECT * FROM projects WHERE status = ? ORDER BY updated_at DESC').all(status);
-  } else {
-    rows = db.prepare('SELECT * FROM projects ORDER BY updated_at DESC').all();
-  }
+  const sql = `
+    SELECT p.*,
+      (SELECT COUNT(*) FROM tasks WHERE project_id = p.id AND status NOT IN ('done','cancelled')) AS active_task_count,
+      (SELECT COUNT(*) FROM tasks WHERE project_id = p.id AND status = 'done') AS done_task_count
+    FROM projects p
+    ${status ? 'WHERE p.status = ?' : ''}
+    ORDER BY p.updated_at DESC
+  `;
+  const rows = status
+    ? db.prepare(sql).all(status)
+    : db.prepare(sql).all();
   sendJson(res, 200, rows);
 };
 

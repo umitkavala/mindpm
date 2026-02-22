@@ -9,6 +9,8 @@ export interface Project {
   created_at: string;
   updated_at: string;
   task_counts?: { status: string; count: number }[];
+  active_task_count?: number;
+  done_task_count?: number;
 }
 
 export interface Task {

@@ -8,7 +8,8 @@
     onRenamed: (id: string, name: string) => void;
   }
 
-  let { projects, selectedId, onSelect, onRenamed }: Props = $props();
+  // projects and onSelect kept for compatibility but not used in this component
+  let { projects: _projects, selectedId, onSelect: _onSelect, onRenamed }: Props = $props();
 
   let editing = $state(false);
   let editName = $state('');
@@ -37,23 +38,8 @@
 </script>
 
 <header class="toolbar">
-  <div class="brand"><span class="prompt">&gt;</span> mindpm</div>
-
-  <div class="project-area">
-    <span class="project-label">project:</span>
-    <select
-      value={selectedId ?? ''}
-      onchange={(e) => onSelect((e.target as HTMLSelectElement).value)}
-    >
-      {#each projects as project}
-        <option value={project.id}>{project.name}</option>
-      {/each}
-    </select>
-
-    {#if selected}
-      {#if selected.slug}
-        <span class="project-slug">[{selected.slug}]</span>
-      {/if}
+  {#if selected}
+    <div class="project-area">
       {#if editing}
         <input
           class="rename-input"
@@ -64,35 +50,25 @@
           autofocus
         />
       {:else}
-        <button class="rename-btn" onclick={startEditing} title="Rename project">
-          ✎
-        </button>
+        <span class="project-name">{selected.name}</span>
+        {#if selected.slug}
+          <span class="project-slug">[{selected.slug}]</span>
+        {/if}
+        <button class="rename-btn" onclick={startEditing} title="Rename project">✎</button>
       {/if}
-    {/if}
-  </div>
+    </div>
+  {/if}
 </header>
 
 <style>
   .toolbar {
     display: flex;
     align-items: center;
-    gap: 20px;
-    padding: 8px 16px;
+    padding: 7px 14px;
     background: var(--surface);
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
-  }
-
-  .brand {
-    font-size: 0.95rem;
-    font-weight: 700;
-    color: var(--primary);
-    letter-spacing: 0.5px;
-    white-space: nowrap;
-  }
-
-  .prompt {
-    color: var(--text-dim);
+    min-height: 37px;
   }
 
   .project-area {
@@ -101,28 +77,15 @@
     gap: 8px;
   }
 
-  .project-label {
-    color: var(--text-muted);
-    font-size: 0.8rem;
+  .project-name {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--text);
   }
 
   .project-slug {
+    font-size: 0.7rem;
     color: var(--text-muted);
-    font-size: 0.75rem;
-  }
-
-  select {
-    padding: 4px 8px;
-    border-radius: var(--radius-sm);
-    border: 1px solid var(--border-bright);
-    background: var(--surface-2);
-    color: var(--text);
-    appearance: auto;
-  }
-
-  select option {
-    background: var(--surface-2);
-    color: var(--text);
   }
 
   .rename-btn {
@@ -130,8 +93,8 @@
     border: 1px solid var(--border);
     color: var(--text-muted);
     border-radius: var(--radius-sm);
-    padding: 2px 7px;
-    font-size: 0.85rem;
+    padding: 1px 6px;
+    font-size: 0.8rem;
     line-height: 1.5;
   }
 

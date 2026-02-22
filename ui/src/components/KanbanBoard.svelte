@@ -324,14 +324,16 @@
   .board-wrapper {
     flex: 1;
     overflow-x: auto;
-    padding: 16px;
+    overflow-y: hidden;
+    padding: 12px;
+    min-height: 0;
   }
 
   .board {
     display: flex;
-    gap: 12px;
+    gap: 10px;
     align-items: flex-start;
-    min-height: calc(100vh - 100px);
+    height: 100%;
   }
 
   .board-message {

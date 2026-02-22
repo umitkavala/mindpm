@@ -2,6 +2,7 @@
   import { api } from './lib/api.js';
   import type { Project } from './lib/types.js';
   import ProjectSelector from './components/ProjectSelector.svelte';
+  import ProjectSidebar from './components/ProjectSidebar.svelte';
   import KanbanBoard from './components/KanbanBoard.svelte';
   import CommandPalette from './components/CommandPalette.svelte';
 
@@ -78,22 +79,46 @@
     <p class="empty-hint">// create a project using mindpm MCP tools to get started</p>
   </div>
 {:else}
-  <ProjectSelector
-    {projects}
-    selectedId={selectedProjectId}
-    onSelect={handleProjectSelect}
-    onRenamed={handleProjectRenamed}
-  />
-  {#if selectedProject}
-    <KanbanBoard
-      project={selectedProject}
-      triggerNewTask={newTaskFromPalette}
-      onNewTaskTriggered={() => { newTaskFromPalette = false; }}
+  <div class="app-layout">
+    <ProjectSidebar
+      {projects}
+      selectedId={selectedProjectId}
+      onSelect={handleProjectSelect}
     />
-  {/if}
+    <div class="main">
+      <ProjectSelector
+        {projects}
+        selectedId={selectedProjectId}
+        onSelect={handleProjectSelect}
+        onRenamed={handleProjectRenamed}
+      />
+      {#if selectedProject}
+        <KanbanBoard
+          project={selectedProject}
+          triggerNewTask={newTaskFromPalette}
+          onNewTaskTriggered={() => { newTaskFromPalette = false; }}
+        />
+      {/if}
+    </div>
+  </div>
 {/if}
 
 <style>
+  .app-layout {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+    min-height: 0;
+  }
+
+  .main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-width: 0;
+  }
+
   .loading,
   .error,
   .empty {
