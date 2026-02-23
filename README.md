@@ -60,10 +60,11 @@ npm install
 npm run build
 ```
 
-### Configure with Claude Code
+### Configure your MCP client
 
-Add to your MCP config (`~/.claude/claude_desktop_config.json` or similar):
+All clients use the same JSON format — just different config file locations. They all share the same `~/.mindpm/memory.db`, so you can switch tools mid-project without losing context.
 
+**Claude Code** — `~/.claude/claude_desktop_config.json`
 ```json
 {
   "mcpServers": {
@@ -78,14 +79,18 @@ Add to your MCP config (`~/.claude/claude_desktop_config.json` or similar):
 }
 ```
 
-If running from source, use the built file directly:
+Or use the one-liner:
+```bash
+claude mcp add mindpm -e MINDPM_DB_PATH=~/.mindpm/memory.db -- npx -y mindpm
+```
 
+**Cursor** — `.cursor/mcp.json` in your project root (or `~/.cursor/mcp.json` globally)
 ```json
 {
   "mcpServers": {
     "mindpm": {
-      "command": "node",
-      "args": ["/path/to/mindpm/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "mindpm"],
       "env": {
         "MINDPM_DB_PATH": "~/.mindpm/memory.db"
       }
@@ -93,6 +98,45 @@ If running from source, use the built file directly:
   }
 }
 ```
+
+**VS Code + Copilot** — `.vscode/mcp.json` in your project root
+```json
+{
+  "servers": {
+    "mindpm": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "mindpm"],
+      "env": {
+        "MINDPM_DB_PATH": "~/.mindpm/memory.db"
+      }
+    }
+  }
+}
+```
+
+**Cline** — Add via VS Code settings → Cline → MCP Servers, or edit `cline_mcp_settings.json`:
+```json
+{
+  "mcpServers": {
+    "mindpm": {
+      "command": "npx",
+      "args": ["-y", "mindpm"],
+      "env": {
+        "MINDPM_DB_PATH": "~/.mindpm/memory.db"
+      }
+    }
+  }
+}
+```
+
+**Windsurf** — Settings → Cascade → MCP, using the same JSON structure as Cline above.
+
+### Using mindpm with any LLM
+
+On first run, mindpm writes `~/.mindpm/AGENT.md` — a ready-to-paste system prompt that tells your LLM how to use mindpm proactively. Paste its contents into your client's custom instructions or system prompt box.
+
+You can also call the `get_agent_instructions` tool at any time to retrieve the instructions.
 
 ### Start Using
 

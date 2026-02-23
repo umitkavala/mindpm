@@ -8,6 +8,7 @@ import { registerDecisionTools } from './tools/decisions.js';
 import { registerNoteTools } from './tools/notes.js';
 import { registerSessionTools } from './tools/sessions.js';
 import { registerQueryTools } from './tools/queries.js';
+import { registerMetaTools } from './tools/meta.js';
 import { closeDb, ensureDbDirectory } from './db/connection.js';
 import { startHttpServer } from './server/http.js';
 import { Server } from 'node:http';
@@ -35,6 +36,7 @@ registerDecisionTools(server);
 registerNoteTools(server);
 registerSessionTools(server);
 registerQueryTools(server);
+registerMetaTools(server);
 
 // Start the server
 let httpServer: Server | undefined;

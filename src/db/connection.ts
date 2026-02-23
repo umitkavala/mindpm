@@ -1,8 +1,9 @@
 import Database from 'better-sqlite3';
-import { mkdirSync } from 'fs';
+import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { homedir } from 'os';
 import { createSchema, runMigrations } from './schema.js';
+import { AGENT_INSTRUCTIONS } from '../tools/meta.js';
 
 let db: Database.Database | null = null;
 
@@ -16,7 +17,14 @@ function resolveDbPath(): string {
 
 export function ensureDbDirectory(): void {
   const dbPath = resolveDbPath();
-  mkdirSync(dirname(dbPath), { recursive: true });
+  const dir = dirname(dbPath);
+  mkdirSync(dir, { recursive: true });
+
+  const agentMdPath = resolve(dir, 'AGENT.md');
+  if (!existsSync(agentMdPath)) {
+    writeFileSync(agentMdPath, AGENT_INSTRUCTIONS, 'utf8');
+    process.stderr.write(`[mindpm] Created ${agentMdPath}\n`);
+  }
 }
 
 export function getDb(): Database.Database {
