@@ -1,0 +1,33 @@
+{
+  "name": "mindpm",
+  "display_name": "MindPM — Persistent Project Memory",
+  "description": "Gives LLMs a SQLite-backed brain for your projects. Tracks tasks, decisions, notes, and session context so every new conversation picks up exactly where you left off. Includes a built-in Kanban board.",
+  "icon": "https://raw.githubusercontent.com/umitkavala/mindpm/main/assets/logo.png",
+  "vendor": "Umit Kavala",
+  "homepage": "https://github.com/umitkavala/mindpm",
+  "license": "MIT",
+  "runtime": "node",
+  "version": "1.2.23",
+  "categories": ["productivity", "memory", "project-management"],
+  "tags": ["memory", "tasks", "decisions", "kanban", "sqlite", "sessions", "context"],
+  "installation": {
+    "npm": "mindpm"
+  },
+  "config": {
+    "command": "npx",
+    "args": ["-y", "mindpm"],
+    "env": {
+      "MINDPM_DB_PATH": {
+        "description": "Path to the SQLite database file",
+        "required": false,
+        "default": "~/.mindpm/memory.db"
+      },
+      "MINDPM_PORT": {
+        "description": "Port for the built-in Kanban board UI",
+        "required": false,
+        "default": "3131"
+      }
+    }
+  },
+  "claude_mcp_add": "claude mcp add mindpm -e MINDPM_DB_PATH=~/.mindpm/memory.db -- npx -y mindpm"
+}

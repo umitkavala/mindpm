@@ -21,11 +21,23 @@
   },
   "keywords": [
     "mcp",
+    "mcp-server",
+    "model-context-protocol",
     "llm",
     "memory",
+    "persistent-memory",
+    "project-memory",
     "sqlite",
     "project-management",
-    "model-context-protocol"
+    "task-management",
+    "kanban",
+    "claude",
+    "claude-code",
+    "anthropic",
+    "ai-memory",
+    "context",
+    "sessions",
+    "decisions"
   ],
   "author": "",
   "license": "MIT",
@@ -35,7 +47,8 @@
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "assets"
   ],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.26.0",

@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1e1b4b"/>
+    </linearGradient>
+    <linearGradient id="stroke-grad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#a78bfa"/>
+      <stop offset="100%" stop-color="#6366f1"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background rounded square -->
+  <rect width="400" height="400" rx="72" fill="url(#bg)"/>
+
+  <!-- M shape — circuit-board style, with nodes at vertices -->
+  <!-- Lines first (behind nodes) -->
+  <!-- Left vertical -->
+  <line x1="110" y1="290" x2="110" y2="120" stroke="url(#stroke-grad)" stroke-width="14" stroke-linecap="round" filter="url(#glow)"/>
+  <!-- Left diagonal down to center -->
+  <line x1="110" y1="120" x2="200" y2="215" stroke="url(#stroke-grad)" stroke-width="14" stroke-linecap="round" filter="url(#glow)"/>
+  <!-- Right diagonal up from center -->
+  <line x1="200" y1="215" x2="290" y2="120" stroke="url(#stroke-grad)" stroke-width="14" stroke-linecap="round" filter="url(#glow)"/>
+  <!-- Right vertical -->
+  <line x1="290" y1="120" x2="290" y2="290" stroke="url(#stroke-grad)" stroke-width="14" stroke-linecap="round" filter="url(#glow)"/>
+
+  <!-- Bottom connector (subtle horizontal line) -->
+  <line x1="110" y1="290" x2="290" y2="290" stroke="#4338ca" stroke-width="5" stroke-linecap="round" opacity="0.5"/>
+
+  <!-- Circuit nodes -->
+  <!-- Bottom-left -->
+  <circle cx="110" cy="290" r="18" fill="#0f172a" stroke="#a78bfa" stroke-width="5"/>
+  <circle cx="110" cy="290" r="7" fill="#a78bfa"/>
+
+  <!-- Top-left -->
+  <circle cx="110" cy="120" r="18" fill="#0f172a" stroke="#a78bfa" stroke-width="5"/>
+  <circle cx="110" cy="120" r="7" fill="#a78bfa"/>
+
+  <!-- Center peak (larger, brighter — the "brain" node) -->
+  <circle cx="200" cy="215" r="24" fill="#0f172a" stroke="#818cf8" stroke-width="6" filter="url(#glow)"/>
+  <circle cx="200" cy="215" r="10" fill="#818cf8" filter="url(#glow)"/>
+
+  <!-- Top-right -->
+  <circle cx="290" cy="120" r="18" fill="#0f172a" stroke="#a78bfa" stroke-width="5"/>
+  <circle cx="290" cy="120" r="7" fill="#a78bfa"/>
+
+  <!-- Bottom-right -->
+  <circle cx="290" cy="290" r="18" fill="#0f172a" stroke="#a78bfa" stroke-width="5"/>
+  <circle cx="290" cy="290" r="7" fill="#a78bfa"/>
+
+  <!-- "pm" label — small, below the M, for context at full size -->
+  <text x="200" y="355" font-family="ui-monospace, 'Courier New', monospace" font-size="28" font-weight="700"
+        fill="#6366f1" text-anchor="middle" letter-spacing="6" opacity="0.8">mindpm</text>
+</svg>
