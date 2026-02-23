@@ -221,7 +221,7 @@
           description: data.description || null,
           priority: data.priority,
           status: data.status,
-          tags: data.tags.length > 0 ? data.tags : null,
+          tags: data.tags.length > 0 ? data.tags.join(',') : null,
         });
         const idx = tasks.findIndex((t) => t.id === editingTask!.id);
         if (idx !== -1) tasks[idx] = updated;
