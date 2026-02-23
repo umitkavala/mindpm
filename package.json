@@ -39,6 +39,7 @@
     "sessions",
     "decisions"
   ],
+  "mcpName": "io.github.umitkavala/mindpm",
   "author": "",
   "license": "MIT",
   "engines": {

@@ -1,0 +1,34 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.umitkavala/mindpm",
+  "description": "Persistent project memory for LLMs via SQLite. Never re-explain your project again.",
+  "repository": {
+    "url": "https://github.com/umitkavala/mindpm",
+    "source": "github"
+  },
+  "version": "1.2.23",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "mindpm",
+      "version": "1.2.23",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "MINDPM_DB_PATH",
+          "description": "Path to the SQLite database file",
+          "required": false,
+          "default": "~/.mindpm/memory.db"
+        },
+        {
+          "name": "MINDPM_PORT",
+          "description": "Port for the built-in Kanban board UI",
+          "required": false,
+          "default": "3131"
+        }
+      ]
+    }
+  ]
+}
