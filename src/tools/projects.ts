@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod/v4';
 import { getDb, generateId, resolveProjectId } from '../db/queries.js';
 import { generateSlug } from '../utils/ids.js';
+import { maybeAutoSession } from './auto-session.js';
 
 export function registerProjectTools(server: McpServer): void {
   server.registerTool(
@@ -89,6 +90,7 @@ export function registerProjectTools(server: McpServer): void {
         return { content: [{ type: 'text' as const, text: `Project "${project}" not found.` }], isError: true };
       }
 
+      const sessionPreamble = maybeAutoSession(projectId);
       const projectRow = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId);
 
       const activeTasks = db
@@ -120,8 +122,9 @@ export function registerProjectTools(server: McpServer): void {
         last_session: lastSession,
       };
 
+      const resultText = JSON.stringify(result, null, 2);
       return {
-        content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+        content: [{ type: 'text' as const, text: sessionPreamble ? `${sessionPreamble}\n\n---\n\n${resultText}` : resultText }],
       };
     },
   );

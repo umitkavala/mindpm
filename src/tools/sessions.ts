@@ -1,41 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod/v4';
-import type Database from 'better-sqlite3';
 import { getDb, generateId, resolveProjectOrDefault } from '../db/queries.js';
-import { getHttpPort } from '../server/http.js';
-
-interface ActivityItem {
-  type: string;
-  id: string;
-  title: string;
-  timestamp: string;
-}
-
-function getActivitySince(db: Database.Database, projectId: string, cutoffTime: string): ActivityItem[] {
-  return db.prepare(`
-    SELECT 'task_created' as type, id, title, created_at as timestamp
-    FROM tasks
-    WHERE project_id = ? AND created_at > ?
-    UNION ALL
-    SELECT 'task_updated' as type, id, title, updated_at as timestamp
-    FROM tasks
-    WHERE project_id = ? AND updated_at > ? AND updated_at != created_at
-    UNION ALL
-    SELECT 'decision' as type, id, title, created_at as timestamp
-    FROM decisions
-    WHERE project_id = ? AND created_at > ?
-    UNION ALL
-    SELECT 'note' as type, id, substr(content, 1, 80) as title, created_at as timestamp
-    FROM notes
-    WHERE project_id = ? AND created_at > ?
-    ORDER BY timestamp DESC
-  `).all(
-    projectId, cutoffTime,
-    projectId, cutoffTime,
-    projectId, cutoffTime,
-    projectId, cutoffTime,
-  ) as ActivityItem[];
-}
+import { buildSessionText, markSessionStarted } from './auto-session.js';
 
 export function registerSessionTools(server: McpServer): void {
   server.registerTool(
@@ -54,96 +20,9 @@ export function registerSessionTools(server: McpServer): void {
         return { content: [{ type: 'text' as const, text: project ? `Project "${project}" not found.` : 'No active projects found. Create a project first.' }], isError: true };
       }
 
-      const db = getDb();
-      const projectRow = db.prepare('SELECT * FROM projects WHERE id = ?').get(resolved.id);
-
-      let lastSession = db
-        .prepare('SELECT * FROM sessions WHERE project_id = ? ORDER BY created_at DESC LIMIT 1')
-        .get(resolved.id) as Record<string, any> | undefined;
-
-      const cutoffTime = lastSession?.created_at ?? '1970-01-01';
-      const recentActivity = getActivitySince(db, resolved.id, cutoffTime);
-
-      // Auto-close: create synthetic session if there's unrecorded activity
-      if (recentActivity.length > 0) {
-        const taskIds = [...new Set(
-          recentActivity
-            .filter(a => a.type === 'task_created' || a.type === 'task_updated')
-            .map(a => a.id),
-        )];
-        const decisionIds = [...new Set(
-          recentActivity.filter(a => a.type === 'decision').map(a => a.id),
-        )];
-
-        const syntheticId = generateId();
-        db.prepare(
-          `INSERT INTO sessions (id, project_id, summary, tasks_worked_on, decisions_made) VALUES (?, ?, ?, ?, ?)`,
-        ).run(
-          syntheticId,
-          resolved.id,
-          `Auto-generated: ${recentActivity.length} activities since last session`,
-          taskIds.length > 0 ? JSON.stringify(taskIds) : null,
-          decisionIds.length > 0 ? JSON.stringify(decisionIds) : null,
-        );
-
-        lastSession = db
-          .prepare('SELECT * FROM sessions WHERE project_id = ? ORDER BY created_at DESC LIMIT 1')
-          .get(resolved.id) as Record<string, any> | undefined;
-      }
-
-      const activeTasks = db
-        .prepare(
-          `SELECT id, title, status, priority, tags FROM tasks
-           WHERE project_id = ? AND status NOT IN ('done', 'cancelled')
-           ORDER BY CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 END`
-        )
-        .all(resolved.id);
-
-      const blockedTasks = db
-        .prepare("SELECT id, title, blocked_by FROM tasks WHERE project_id = ? AND status = 'blocked'")
-        .all(resolved.id);
-
-      const recentDecisions = db
-        .prepare('SELECT id, title, decision, created_at FROM decisions WHERE project_id = ? ORDER BY created_at DESC LIMIT 5')
-        .all(resolved.id);
-
-      const taskCounts = db
-        .prepare('SELECT status, COUNT(*) as count FROM tasks WHERE project_id = ? GROUP BY status')
-        .all(resolved.id);
-
-      const contextItems = db
-        .prepare('SELECT key, value, category FROM context WHERE project_id = ? ORDER BY category, key')
-        .all(resolved.id);
-
-      // Touch the project to update its updated_at
-      db.prepare('UPDATE projects SET status = status WHERE id = ?').run(resolved.id);
-
-      const port = getHttpPort();
-      const kanbanUrl = port ? `http://localhost:${port}?project=${resolved.id}` : null;
-      const result = {
-        kanban_url: kanbanUrl,
-        project: projectRow,
-        last_session: lastSession
-          ? {
-              summary: lastSession.summary,
-              next_steps: lastSession.next_steps,
-              when: lastSession.created_at,
-            }
-          : null,
-        recent_activity: recentActivity.slice(0, 20),
-        task_summary: taskCounts,
-        active_tasks: activeTasks,
-        blocked_tasks: blockedTasks,
-        recent_decisions: recentDecisions,
-        context: contextItems,
-      };
-
-      const kanbanLine = kanbanUrl
-        ? `Kanban board: ${kanbanUrl}`
-        : 'Kanban board: unavailable (HTTP server not running)';
-
+      markSessionStarted(resolved.id);
       return {
-        content: [{ type: 'text' as const, text: `${kanbanLine}\n\n${JSON.stringify(result, null, 2)}` }],
+        content: [{ type: 'text' as const, text: buildSessionText(resolved.id) }],
       };
     },
   );

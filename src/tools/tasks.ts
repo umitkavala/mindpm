@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod/v4';
 import { getDb, generateId, resolveProjectOrDefault } from '../db/queries.js';
+import { maybeAutoSession } from './auto-session.js';
 
 export function registerTaskTools(server: McpServer): void {
   server.registerTool(
@@ -24,6 +25,7 @@ export function registerTaskTools(server: McpServer): void {
         return { content: [{ type: 'text' as const, text: project ? `Project "${project}" not found.` : 'No active projects found. Create a project first.' }], isError: true };
       }
 
+      const sessionPreamble = maybeAutoSession(resolved.id);
       const db = getDb();
       const id = generateId();
       const seqRow = db.prepare('SELECT COALESCE(MAX(seq), 0) + 1 AS next_seq FROM tasks WHERE project_id = ?').get(resolved.id) as { next_seq: number };
@@ -44,14 +46,15 @@ export function registerTaskTools(server: McpServer): void {
       const proj = db.prepare('SELECT slug FROM projects WHERE id = ?').get(resolved.id) as { slug: string } | undefined;
       const short_id = proj?.slug ? `${proj.slug}-${seq}` : null;
 
+      const resultText = JSON.stringify({
+        task_id: id,
+        short_id,
+        message: `Task created: "${title}" in ${resolved.name} (priority: ${priority ?? 'medium'})`,
+      });
       return {
         content: [{
           type: 'text' as const,
-          text: JSON.stringify({
-            task_id: id,
-            short_id,
-            message: `Task created: "${title}" in ${resolved.name} (priority: ${priority ?? 'medium'})`,
-          }),
+          text: sessionPreamble ? `${sessionPreamble}\n\n---\n\n${resultText}` : resultText,
         }],
       };
     },
@@ -80,6 +83,7 @@ export function registerTaskTools(server: McpServer): void {
         return { content: [{ type: 'text' as const, text: `Task "${task_id}" not found.` }], isError: true };
       }
 
+      const sessionPreamble = maybeAutoSession(existing.project_id);
       const updates: string[] = [];
       const params: any[] = [];
 
@@ -109,8 +113,9 @@ export function registerTaskTools(server: McpServer): void {
       params.push(task_id);
       db.prepare(`UPDATE tasks SET ${updates.join(', ')} WHERE id = ?`).run(...params);
 
+      const resultText = JSON.stringify({ task_id, message: `Task "${existing.title}" updated.` });
       return {
-        content: [{ type: 'text' as const, text: JSON.stringify({ task_id, message: `Task "${existing.title}" updated.` }) }],
+        content: [{ type: 'text' as const, text: sessionPreamble ? `${sessionPreamble}\n\n---\n\n${resultText}` : resultText }],
       };
     },
   );
@@ -135,32 +140,34 @@ export function registerTaskTools(server: McpServer): void {
         return { content: [{ type: 'text' as const, text: project ? `Project "${project}" not found.` : 'No active projects found.' }], isError: true };
       }
 
+      const sessionPreamble = maybeAutoSession(resolved.id);
       const db = getDb();
-      const conditions: string[] = ['project_id = @projectId'];
+      const conditions: string[] = ['t.project_id = @projectId'];
       const params: Record<string, any> = { projectId: resolved.id };
 
       if (status) {
-        conditions.push('status = @status');
+        conditions.push('t.status = @status');
         params.status = status;
       } else if (!include_done) {
-        conditions.push("status NOT IN ('done', 'cancelled')");
+        conditions.push("t.status NOT IN ('done', 'cancelled')");
       }
 
       if (priority) {
-        conditions.push('priority = @priority');
+        conditions.push('t.priority = @priority');
         params.priority = priority;
       }
 
       if (tag) {
-        conditions.push("tags LIKE '%' || @tag || '%'");
+        conditions.push("t.tags LIKE '%' || @tag || '%'");
         params.tag = `"${tag}"`;
       }
 
       const sql = `SELECT t.*, p.slug || '-' || t.seq AS short_id FROM tasks t JOIN projects p ON t.project_id = p.id WHERE ${conditions.join(' AND ')} ORDER BY CASE t.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 END, t.created_at DESC`;
       const rows = db.prepare(sql).all(params);
 
+      const resultText = JSON.stringify({ project: resolved.name, tasks: rows }, null, 2);
       return {
-        content: [{ type: 'text' as const, text: JSON.stringify({ project: resolved.name, tasks: rows }, null, 2) }],
+        content: [{ type: 'text' as const, text: sessionPreamble ? `${sessionPreamble}\n\n---\n\n${resultText}` : resultText }],
       };
     },
   );
@@ -176,16 +183,18 @@ export function registerTaskTools(server: McpServer): void {
     },
     async ({ task_id }) => {
       const db = getDb();
-      const task = db.prepare('SELECT t.*, p.slug || \'-\' || t.seq AS short_id FROM tasks t JOIN projects p ON t.project_id = p.id WHERE t.id = ?').get(task_id);
+      const task = db.prepare('SELECT t.*, p.slug || \'-\' || t.seq AS short_id FROM tasks t JOIN projects p ON t.project_id = p.id WHERE t.id = ?').get(task_id) as Record<string, any> | undefined;
       if (!task) {
         return { content: [{ type: 'text' as const, text: `Task "${task_id}" not found.` }], isError: true };
       }
 
+      const sessionPreamble = maybeAutoSession(task.project_id);
       const subtasks = db.prepare('SELECT t.*, p.slug || \'-\' || t.seq AS short_id FROM tasks t JOIN projects p ON t.project_id = p.id WHERE t.parent_task_id = ?').all(task_id);
       const notes = db.prepare('SELECT * FROM notes WHERE task_id = ? ORDER BY created_at DESC').all(task_id);
 
+      const resultText = JSON.stringify({ task, subtasks, notes }, null, 2);
       return {
-        content: [{ type: 'text' as const, text: JSON.stringify({ task, subtasks, notes }, null, 2) }],
+        content: [{ type: 'text' as const, text: sessionPreamble ? `${sessionPreamble}\n\n---\n\n${resultText}` : resultText }],
       };
     },
   );
@@ -207,6 +216,7 @@ export function registerTaskTools(server: McpServer): void {
         return { content: [{ type: 'text' as const, text: project ? `Project "${project}" not found.` : 'No active projects found.' }], isError: true };
       }
 
+      const sessionPreamble = maybeAutoSession(resolved.id);
       const db = getDb();
       const rows = db
         .prepare(
@@ -218,10 +228,11 @@ export function registerTaskTools(server: McpServer): void {
         )
         .all(resolved.id, limit ?? 5);
 
+      const resultText = JSON.stringify({ project: resolved.name, next_tasks: rows }, null, 2);
       return {
         content: [{
           type: 'text' as const,
-          text: JSON.stringify({ project: resolved.name, next_tasks: rows }, null, 2),
+          text: sessionPreamble ? `${sessionPreamble}\n\n---\n\n${resultText}` : resultText,
         }],
       };
     },

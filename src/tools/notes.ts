@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod/v4';
 import { getDb, generateId, resolveProjectOrDefault } from '../db/queries.js';
+import { maybeAutoSession } from './auto-session.js';
 
 export function registerNoteTools(server: McpServer): void {
   server.registerTool(
@@ -26,6 +27,7 @@ export function registerNoteTools(server: McpServer): void {
         return { content: [{ type: 'text' as const, text: project ? `Project "${project}" not found.` : 'No active projects found. Create a project first.' }], isError: true };
       }
 
+      const sessionPreamble = maybeAutoSession(resolved.id);
       const db = getDb();
       const id = generateId();
       db.prepare(
@@ -39,10 +41,11 @@ export function registerNoteTools(server: McpServer): void {
         tags ? JSON.stringify(tags) : null,
       );
 
+      const resultText = JSON.stringify({ note_id: id, message: `Note added to ${resolved.name} (${category ?? 'general'})` });
       return {
         content: [{
           type: 'text' as const,
-          text: JSON.stringify({ note_id: id, message: `Note added to ${resolved.name} (${category ?? 'general'})` }),
+          text: sessionPreamble ? `${sessionPreamble}\n\n---\n\n${resultText}` : resultText,
         }],
       };
     },
@@ -68,6 +71,7 @@ export function registerNoteTools(server: McpServer): void {
         return { content: [{ type: 'text' as const, text: project ? `Project "${project}" not found.` : 'No active projects found.' }], isError: true };
       }
 
+      const sessionPreamble = maybeAutoSession(resolved.id);
       const db = getDb();
       const conditions: string[] = ['project_id = ?'];
       const params: any[] = [resolved.id];
@@ -83,8 +87,9 @@ export function registerNoteTools(server: McpServer): void {
       const sql = `SELECT * FROM notes WHERE ${conditions.join(' AND ')} ORDER BY created_at DESC`;
       const rows = db.prepare(sql).all(...params);
 
+      const resultText = JSON.stringify({ project: resolved.name, results: rows }, null, 2);
       return {
-        content: [{ type: 'text' as const, text: JSON.stringify({ project: resolved.name, results: rows }, null, 2) }],
+        content: [{ type: 'text' as const, text: sessionPreamble ? `${sessionPreamble}\n\n---\n\n${resultText}` : resultText }],
       };
     },
   );
@@ -108,6 +113,7 @@ export function registerNoteTools(server: McpServer): void {
         return { content: [{ type: 'text' as const, text: project ? `Project "${project}" not found.` : 'No active projects found. Create a project first.' }], isError: true };
       }
 
+      const sessionPreamble = maybeAutoSession(resolved.id);
       const db = getDb();
       const id = generateId();
       db.prepare(
@@ -116,10 +122,11 @@ export function registerNoteTools(server: McpServer): void {
          ON CONFLICT(project_id, key) DO UPDATE SET value = excluded.value, category = excluded.category`
       ).run(id, resolved.id, key, value, category ?? 'general');
 
+      const resultText = JSON.stringify({ message: `Context set: "${key}" = "${value}" in ${resolved.name}` });
       return {
         content: [{
           type: 'text' as const,
-          text: JSON.stringify({ message: `Context set: "${key}" = "${value}" in ${resolved.name}` }),
+          text: sessionPreamble ? `${sessionPreamble}\n\n---\n\n${resultText}` : resultText,
         }],
       };
     },
@@ -141,6 +148,7 @@ export function registerNoteTools(server: McpServer): void {
         return { content: [{ type: 'text' as const, text: project ? `Project "${project}" not found.` : 'No active projects found.' }], isError: true };
       }
 
+      const sessionPreamble = maybeAutoSession(resolved.id);
       const db = getDb();
       let rows;
       if (key) {
@@ -149,8 +157,9 @@ export function registerNoteTools(server: McpServer): void {
         rows = db.prepare('SELECT * FROM context WHERE project_id = ? ORDER BY category, key').all(resolved.id);
       }
 
+      const resultText = JSON.stringify({ project: resolved.name, context: rows }, null, 2);
       return {
-        content: [{ type: 'text' as const, text: JSON.stringify({ project: resolved.name, context: rows }, null, 2) }],
+        content: [{ type: 'text' as const, text: sessionPreamble ? `${sessionPreamble}\n\n---\n\n${resultText}` : resultText }],
       };
     },
   );

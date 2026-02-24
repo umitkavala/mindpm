@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod/v4';
 import { getDb, generateId, resolveProjectOrDefault } from '../db/queries.js';
+import { maybeAutoSession } from './auto-session.js';
 
 export function registerDecisionTools(server: McpServer): void {
   server.registerTool(
@@ -25,6 +26,7 @@ export function registerDecisionTools(server: McpServer): void {
         return { content: [{ type: 'text' as const, text: project ? `Project "${project}" not found.` : 'No active projects found. Create a project first.' }], isError: true };
       }
 
+      const sessionPreamble = maybeAutoSession(resolved.id);
       const db = getDb();
       const id = generateId();
       db.prepare(
@@ -41,10 +43,11 @@ export function registerDecisionTools(server: McpServer): void {
       );
 
       const scope = task_id ? `task ${task_id} in ${resolved.name}` : resolved.name;
+      const resultText = JSON.stringify({ decision_id: id, message: `Decision logged: "${title}" in ${scope}` });
       return {
         content: [{
           type: 'text' as const,
-          text: JSON.stringify({ decision_id: id, message: `Decision logged: "${title}" in ${scope}` }),
+          text: sessionPreamble ? `${sessionPreamble}\n\n---\n\n${resultText}` : resultText,
         }],
       };
     },
@@ -67,6 +70,7 @@ export function registerDecisionTools(server: McpServer): void {
         return { content: [{ type: 'text' as const, text: project ? `Project "${project}" not found.` : 'No active projects found.' }], isError: true };
       }
 
+      const sessionPreamble = maybeAutoSession(resolved.id);
       const db = getDb();
       let sql: string;
       const params: any[] = [resolved.id];
@@ -81,8 +85,9 @@ export function registerDecisionTools(server: McpServer): void {
 
       const rows = db.prepare(sql).all(...params);
 
+      const resultText = JSON.stringify({ project: resolved.name, decisions: rows }, null, 2);
       return {
-        content: [{ type: 'text' as const, text: JSON.stringify({ project: resolved.name, decisions: rows }, null, 2) }],
+        content: [{ type: 'text' as const, text: sessionPreamble ? `${sessionPreamble}\n\n---\n\n${resultText}` : resultText }],
       };
     },
   );

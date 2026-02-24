@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod/v4';
 import { getDb, resolveProjectOrDefault } from '../db/queries.js';
+import { maybeAutoSession } from './auto-session.js';
 
 export function registerQueryTools(server: McpServer): void {
   server.registerTool(
@@ -51,6 +52,7 @@ export function registerQueryTools(server: McpServer): void {
         return { content: [{ type: 'text' as const, text: project ? `Project "${project}" not found.` : 'No active projects found.' }], isError: true };
       }
 
+      const sessionPreamble = maybeAutoSession(resolved.id);
       const db = getDb();
       const tasksByStatus = db
         .prepare('SELECT status, COUNT(*) as count FROM tasks WHERE project_id = ? GROUP BY status')
@@ -93,21 +95,22 @@ export function registerQueryTools(server: McpServer): void {
         .prepare('SELECT COUNT(*) as count FROM sessions WHERE project_id = ?')
         .get(resolved.id) as { count: number };
 
+      const resultText = JSON.stringify(
+        {
+          project: resolved.name,
+          tasks_by_status: tasksByStatus,
+          blockers,
+          upcoming_priorities: upcomingPriorities,
+          recent_activity: recentActivity,
+          totals: { notes: totalNotes.count, decisions: totalDecisions.count, sessions: totalSessions.count },
+        },
+        null,
+        2,
+      );
       return {
         content: [{
           type: 'text' as const,
-          text: JSON.stringify(
-            {
-              project: resolved.name,
-              tasks_by_status: tasksByStatus,
-              blockers,
-              upcoming_priorities: upcomingPriorities,
-              recent_activity: recentActivity,
-              totals: { notes: totalNotes.count, decisions: totalDecisions.count, sessions: totalSessions.count },
-            },
-            null,
-            2,
-          ),
+          text: sessionPreamble ? `${sessionPreamble}\n\n---\n\n${resultText}` : resultText,
         }],
       };
     },
@@ -128,6 +131,7 @@ export function registerQueryTools(server: McpServer): void {
         return { content: [{ type: 'text' as const, text: project ? `Project "${project}" not found.` : 'No active projects found.' }], isError: true };
       }
 
+      const sessionPreamble = maybeAutoSession(resolved.id);
       const db = getDb();
       const blockers = db
         .prepare("SELECT * FROM tasks WHERE project_id = ? AND status = 'blocked'")
@@ -150,8 +154,9 @@ export function registerQueryTools(server: McpServer): void {
         return { ...task, blocking_tasks: blockingTasks };
       });
 
+      const resultText = JSON.stringify({ project: resolved.name, blockers: enriched }, null, 2);
       return {
-        content: [{ type: 'text' as const, text: JSON.stringify({ project: resolved.name, blockers: enriched }, null, 2) }],
+        content: [{ type: 'text' as const, text: sessionPreamble ? `${sessionPreamble}\n\n---\n\n${resultText}` : resultText }],
       };
     },
   );
@@ -172,6 +177,7 @@ export function registerQueryTools(server: McpServer): void {
         return { content: [{ type: 'text' as const, text: project ? `Project "${project}" not found.` : 'No active projects found.' }], isError: true };
       }
 
+      const sessionPreamble = maybeAutoSession(resolved.id);
       const db = getDb();
       const pattern = `%${query}%`;
 
@@ -187,19 +193,20 @@ export function registerQueryTools(server: McpServer): void {
         .prepare("SELECT id, title, decision, reasoning, 'decision' as type FROM decisions WHERE project_id = ? AND (title LIKE ? OR decision LIKE ? OR reasoning LIKE ?)")
         .all(resolved.id, pattern, pattern, pattern);
 
+      const resultText = JSON.stringify(
+        {
+          project: resolved.name,
+          query,
+          results: { tasks, notes, decisions },
+          total: tasks.length + notes.length + decisions.length,
+        },
+        null,
+        2,
+      );
       return {
         content: [{
           type: 'text' as const,
-          text: JSON.stringify(
-            {
-              project: resolved.name,
-              query,
-              results: { tasks, notes, decisions },
-              total: tasks.length + notes.length + decisions.length,
-            },
-            null,
-            2,
-          ),
+          text: sessionPreamble ? `${sessionPreamble}\n\n---\n\n${resultText}` : resultText,
         }],
       };
     },
