@@ -1,10 +1,14 @@
 <script lang="ts">
   import { api } from './lib/api.js';
-  import type { Project } from './lib/types.js';
+  import type { Project, Task } from './lib/types.js';
   import ProjectSelector from './components/ProjectSelector.svelte';
   import ProjectSidebar from './components/ProjectSidebar.svelte';
   import KanbanBoard from './components/KanbanBoard.svelte';
+  import NotesView from './components/NotesView.svelte';
+  import DecisionsView from './components/DecisionsView.svelte';
   import CommandPalette from './components/CommandPalette.svelte';
+
+  type View = 'kanban' | 'notes' | 'decisions';
 
   let projects: Project[] = $state([]);
   let selectedProjectId: string | null = $state(null);
@@ -12,6 +16,8 @@
   let error: string | null = $state(null);
   let showPalette = $state(false);
   let newTaskFromPalette = $state(false);
+  let activeView: View = $state('kanban');
+  let openTaskFromView: Task | null = $state(null);
 
   const selectedProject = $derived(projects.find((p) => p.id === selectedProjectId) ?? null);
 
@@ -32,6 +38,7 @@
 
   function handleProjectSelect(id: string) {
     selectedProjectId = id;
+    activeView = 'kanban';
     const url = new URL(window.location.href);
     url.searchParams.set('project', id);
     history.replaceState(null, '', url.toString());
@@ -96,11 +103,30 @@
         onRenamed={handleProjectRenamed}
       />
       {#if selectedProject}
-        <KanbanBoard
-          project={selectedProject}
-          triggerNewTask={newTaskFromPalette}
-          onNewTaskTriggered={() => { newTaskFromPalette = false; }}
-        />
+        <div class="tabs">
+          <button class="tab" class:active={activeView === 'kanban'} onclick={() => activeView = 'kanban'}>Kanban</button>
+          <button class="tab" class:active={activeView === 'notes'} onclick={() => activeView = 'notes'}>Notes</button>
+          <button class="tab" class:active={activeView === 'decisions'} onclick={() => activeView = 'decisions'}>Decisions</button>
+        </div>
+        {#if activeView === 'kanban'}
+          <KanbanBoard
+            project={selectedProject}
+            triggerNewTask={newTaskFromPalette}
+            openTask={openTaskFromView}
+            onNewTaskTriggered={() => { newTaskFromPalette = false; }}
+            onOpenTaskHandled={() => { openTaskFromView = null; }}
+          />
+        {:else if activeView === 'notes'}
+          <NotesView
+            projectId={selectedProject.id}
+            onOpenTask={(task) => { openTaskFromView = task; activeView = 'kanban'; }}
+          />
+        {:else if activeView === 'decisions'}
+          <DecisionsView
+            projectId={selectedProject.id}
+            onOpenTask={(task) => { openTaskFromView = task; activeView = 'kanban'; }}
+          />
+        {/if}
       {/if}
     </div>
   </div>
@@ -120,6 +146,37 @@
     flex-direction: column;
     overflow: hidden;
     min-width: 0;
+  }
+
+  .tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--border);
+    padding: 0 16px;
+    flex-shrink: 0;
+  }
+
+  .tab {
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    padding: 8px 14px;
+    margin-bottom: -1px;
+    transition: color 0.1s, border-color 0.1s;
+  }
+
+  .tab:hover {
+    color: var(--text-dim);
+  }
+
+  .tab.active {
+    color: var(--primary);
+    border-bottom-color: var(--primary);
   }
 
   .loading,

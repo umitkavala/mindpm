@@ -42,6 +42,16 @@ export interface Decision {
   created_at: string;
 }
 
+export interface Note {
+  id: string;
+  project_id: string;
+  task_id: string | null;
+  content: string;
+  category: 'general' | 'architecture' | 'bug' | 'idea' | 'research' | 'meeting' | 'review';
+  tags: string | null;
+  created_at: string;
+}
+
 export interface TaskHistoryEvent {
   id: string;
   task_id: string;

@@ -1,4 +1,4 @@
-import type { Project, Task, Decision, TaskHistoryEvent } from './types.js';
+import type { Project, Task, Note, Decision, TaskHistoryEvent } from './types.js';
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
@@ -40,6 +40,9 @@ export const api = {
 
   deleteTask: (id: string) =>
     request<{ message: string }>(`/tasks/${id}`, { method: 'DELETE' }),
+
+  getNotes: (projectId: string) =>
+    request<Note[]>(`/projects/${projectId}/notes`),
 
   getDecisions: (projectId: string) =>
     request<Decision[]>(`/projects/${projectId}/decisions`),

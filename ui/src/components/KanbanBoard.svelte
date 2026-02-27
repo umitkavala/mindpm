@@ -10,10 +10,12 @@
   interface Props {
     project: Project;
     triggerNewTask?: boolean;
+    openTask?: Task | null;
     onNewTaskTriggered?: () => void;
+    onOpenTaskHandled?: () => void;
   }
 
-  let { project, triggerNewTask = false, onNewTaskTriggered }: Props = $props();
+  let { project, triggerNewTask = false, openTask = null, onNewTaskTriggered, onOpenTaskHandled }: Props = $props();
 
   let tasks: Task[] = $state([]);
   let loading = $state(true);
@@ -147,6 +149,15 @@
     if (triggerNewTask) {
       openCreateModal('todo');
       onNewTaskTriggered?.();
+    }
+  });
+
+  // React to openTask from notes/decisions views
+  $effect(() => {
+    if (openTask) {
+      editingTask = openTask;
+      showModal = true;
+      onOpenTaskHandled?.();
     }
   });
 

@@ -278,6 +278,14 @@ const createSession: RouteHandler = async (req, res, params) => {
   sendJson(res, 201, session);
 };
 
+// --- Note handlers ---
+
+const listNotes: RouteHandler = async (_req, res, params) => {
+  const db = getDb();
+  const rows = db.prepare('SELECT * FROM notes WHERE project_id = ? ORDER BY created_at DESC').all(params.pid);
+  sendJson(res, 200, rows);
+};
+
 // --- Decision handlers ---
 
 const listDecisions: RouteHandler = async (_req, res, params) => {
@@ -293,6 +301,7 @@ const routes: Route[] = [
   { method: 'GET', pattern: '/api/projects/:id', handler: getProject },
   { method: 'PATCH', pattern: '/api/projects/:id', handler: updateProject },
   { method: 'POST', pattern: '/api/projects/:pid/sessions', handler: createSession },
+  { method: 'GET', pattern: '/api/projects/:pid/notes', handler: listNotes },
   { method: 'GET', pattern: '/api/projects/:pid/decisions', handler: listDecisions },
   { method: 'GET', pattern: '/api/projects/:pid/tasks', handler: listTasks },
   { method: 'POST', pattern: '/api/projects/:pid/tasks', handler: createTask },

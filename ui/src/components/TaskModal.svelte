@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Task, TaskStatus, TaskPriority, Decision, TaskHistoryEvent } from '../lib/types.js';
+  import type { Task, TaskStatus, TaskPriority, TaskHistoryEvent } from '../lib/types.js';
   import { PRIORITY_ORDER } from '../lib/types.js';
   import { api } from '../lib/api.js';
 
@@ -24,7 +24,6 @@
   let priority: TaskPriority = $state('medium');
   let status: TaskStatus = $state('todo');
   let tagsStr = $state('');
-  let decisions: Decision[] = $state([]);
   let history: TaskHistoryEvent[] = $state([]);
 
   // Initialize form state from task prop
@@ -44,20 +43,16 @@
     }
   });
 
-  // Load decisions and history when editing a task
+  // Load history when editing a task
   $effect(() => {
     if (task !== null) {
-      api.getDecisions(projectId).then((d) => { decisions = d; }).catch(() => { decisions = []; });
       api.getTaskHistory(task.id).then((h) => { history = h; }).catch(() => { history = []; });
     } else {
-      decisions = [];
       history = [];
     }
   });
 
   const isEdit = $derived(task !== null);
-  const taskDecisions = $derived(decisions.filter(d => d.task_id === task?.id));
-  const projectDecisions = $derived(decisions.filter(d => d.task_id === null));
 
   function formatHistoryEvent(event: TaskHistoryEvent): string {
     switch (event.event) {
@@ -72,11 +67,6 @@
       default:
         return event.event.replace(/_/g, ' ');
     }
-  }
-
-  function renderDecisionAlts(altsStr: string | null): string[] {
-    if (!altsStr) return [];
-    try { return JSON.parse(altsStr); } catch { return []; }
   }
 
   function formatTime(iso: string): string {
@@ -115,19 +105,6 @@
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
-
-{#snippet decisionItem(d: Decision)}
-  <div class="decision-item">
-    <div class="decision-title">{d.title}</div>
-    <div class="decision-body">{d.decision}</div>
-    {#if d.reasoning}
-      <div class="decision-reasoning">{d.reasoning}</div>
-    {/if}
-    {#each renderDecisionAlts(d.alternatives) as alt, i}
-      {#if i === 0}<div class="decision-alts">Alternatives: {renderDecisionAlts(d.alternatives).join(', ')}</div>{/if}
-    {/each}
-  </div>
-{/snippet}
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -205,26 +182,6 @@
       </div>
     {/if}
 
-    {#if isEdit && (taskDecisions.length > 0 || projectDecisions.length > 0)}
-      <div class="decisions-section">
-        {#if taskDecisions.length > 0}
-          <h3 class="decisions-heading">Task Decisions</h3>
-          <div class="decisions-list">
-            {#each taskDecisions as d (d.id)}
-              {@render decisionItem(d)}
-            {/each}
-          </div>
-        {/if}
-        {#if projectDecisions.length > 0}
-          <h3 class="decisions-heading" class:spaced={taskDecisions.length > 0}>Project Decisions</h3>
-          <div class="decisions-list">
-            {#each projectDecisions as d (d.id)}
-              {@render decisionItem(d)}
-            {/each}
-          </div>
-        {/if}
-      </div>
-    {/if}
   </div>
 </div>
 
@@ -460,65 +417,4 @@
     color: var(--text-muted);
   }
 
-  .decisions-section {
-    margin-top: 18px;
-    border-top: 1px solid var(--border);
-    padding-top: 14px;
-  }
-
-  .decisions-heading {
-    font-size: 0.65rem;
-    font-weight: 700;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    margin-bottom: 8px;
-  }
-
-  .decisions-heading.spaced {
-    margin-top: 12px;
-  }
-
-  .decisions-list {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    max-height: 240px;
-    overflow-y: auto;
-  }
-
-  .decision-item {
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-left: 3px solid var(--border-bright);
-    border-radius: var(--radius-sm);
-    padding: 8px 10px;
-  }
-
-  .decision-title {
-    font-size: 0.78rem;
-    font-weight: 700;
-    color: var(--text);
-    margin-bottom: 3px;
-  }
-
-  .decision-body {
-    font-size: 0.75rem;
-    color: var(--text-dim);
-    line-height: 1.4;
-  }
-
-  .decision-reasoning {
-    font-size: 0.7rem;
-    color: var(--text-muted);
-    margin-top: 3px;
-    line-height: 1.4;
-    font-style: italic;
-  }
-
-  .decision-alts {
-    font-size: 0.7rem;
-    color: var(--text-muted);
-    margin-top: 3px;
-  }
 </style>

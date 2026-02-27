@@ -46,14 +46,13 @@
         <span class="status-dot" style="background: {statusDot[project.status] ?? 'var(--text-muted)'}"></span>
         {#if !collapsed}
           <span class="project-name">{project.name}</span>
-          {#if project.slug}
-            <span class="project-slug">{project.slug}</span>
-          {/if}
           {#if (project.active_task_count ?? 0) > 0}
             <span class="task-count">{project.active_task_count}</span>
           {/if}
-        {:else if (project.active_task_count ?? 0) > 0}
-          <span class="task-count-collapsed">{project.active_task_count}</span>
+        {:else}
+          {#if project.slug}
+            <span class="project-slug-collapsed">{project.slug}</span>
+          {/if}
         {/if}
       </button>
     {/each}
@@ -170,19 +169,6 @@
     text-overflow: ellipsis;
   }
 
-  .project-slug {
-    font-size: 0.58rem;
-    color: var(--text-muted);
-    opacity: 0.7;
-    flex-shrink: 0;
-    font-family: monospace;
-  }
-
-  .project-item.active .project-slug {
-    color: var(--primary);
-    opacity: 0.7;
-  }
-
   .task-count {
     font-size: 0.62rem;
     color: var(--text-muted);
@@ -200,10 +186,16 @@
     background: none;
   }
 
-  .task-count-collapsed {
+  .project-slug-collapsed {
     font-size: 0.55rem;
-    color: var(--primary);
+    color: var(--text-muted);
     line-height: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .project-item.active .project-slug-collapsed {
+    color: var(--primary);
   }
 
   .sidebar-footer {
