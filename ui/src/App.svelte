@@ -32,6 +32,9 @@
 
   function handleProjectSelect(id: string) {
     selectedProjectId = id;
+    const url = new URL(window.location.href);
+    url.searchParams.set('project', id);
+    history.replaceState(null, '', url.toString());
   }
 
   async function handleProjectRenamed(id: string, newName: string) {

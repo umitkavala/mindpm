@@ -26,7 +26,6 @@ export function registerDecisionTools(server: McpServer): void {
         return { content: [{ type: 'text' as const, text: project ? `Project "${project}" not found.` : 'No active projects found. Create a project first.' }], isError: true };
       }
 
-      const sessionPreamble = maybeAutoSession(resolved.id);
       const db = getDb();
       const id = generateId();
       db.prepare(
@@ -43,11 +42,10 @@ export function registerDecisionTools(server: McpServer): void {
       );
 
       const scope = task_id ? `task ${task_id} in ${resolved.name}` : resolved.name;
-      const resultText = JSON.stringify({ decision_id: id, message: `Decision logged: "${title}" in ${scope}` });
       return {
         content: [{
           type: 'text' as const,
-          text: sessionPreamble ? `${sessionPreamble}\n\n---\n\n${resultText}` : resultText,
+          text: JSON.stringify({ decision_id: id, message: `Decision logged: "${title}" in ${scope}` }),
         }],
       };
     },

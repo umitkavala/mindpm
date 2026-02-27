@@ -16,6 +16,11 @@ export function markSessionStarted(projectId: string): void {
   autoStartedProjects.add(projectId);
 }
 
+/** Reset auto-session state. For use in tests only. */
+export function resetAutoSession(): void {
+  autoStartedProjects.clear();
+}
+
 function getActivitySince(db: Database.Database, projectId: string, cutoffTime: string): ActivityItem[] {
   return db.prepare(`
     SELECT 'task_created' as type, id, title, created_at as timestamp

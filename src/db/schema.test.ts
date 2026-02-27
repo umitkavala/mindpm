@@ -15,13 +15,13 @@ afterEach(() => {
 });
 
 describe('createSchema', () => {
-  it('creates all 6 tables', () => {
+  it('creates all 7 tables', () => {
     const tables = db
       .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
       .all()
       .map((r: any) => r.name)
       .sort();
-    expect(tables).toEqual(['context', 'decisions', 'notes', 'projects', 'sessions', 'tasks']);
+    expect(tables).toEqual(['context', 'decisions', 'notes', 'projects', 'sessions', 'task_history', 'tasks']);
   });
 
   it('creates expected indexes', () => {

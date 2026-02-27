@@ -1,10 +1,12 @@
 import Database from 'better-sqlite3';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { createSchema } from '../db/schema.js';
+import { resetAutoSession } from '../tools/auto-session.js';
 
 let testDb: Database.Database | null = null;
 
 export function createTestDb(): Database.Database {
+  resetAutoSession();
   testDb = new Database(':memory:');
   testDb.pragma('journal_mode = WAL');
   testDb.pragma('foreign_keys = ON');
@@ -172,10 +174,19 @@ export function seedContext(
 }
 
 export function parseToolResult(result: { content: Array<{ type: string; text: string }>; isError?: boolean }): any {
-  const text = result.content[0].text;
+  let text = result.content[0].text;
+  // Strip auto-session preamble if present (format: "...\n\n---\n\n{json}")
+  const sep = '\n\n---\n\n';
+  const sepIdx = text.indexOf(sep);
+  if (sepIdx !== -1) text = text.slice(sepIdx + sep.length);
   try {
     return JSON.parse(text);
   } catch {
+    // Handle start_session format: "Kanban board: ...\n\n{json}"
+    const nnIdx = text.indexOf('\n\n');
+    if (nnIdx !== -1) {
+      try { return JSON.parse(text.slice(nnIdx + 2)); } catch {}
+    }
     return text;
   }
 }

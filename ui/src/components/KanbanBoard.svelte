@@ -88,12 +88,22 @@
     return result;
   });
 
-  // Group filtered tasks by status
+  const PRIORITY_RANK: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+
+  // Group filtered tasks by status; done/cancelled sorted by updated_at desc, others by priority
   const tasksByStatus = $derived(
-    COLUMNS.map((col) => ({
-      ...col,
-      tasks: filteredTasks().filter((t) => t.status === col.status),
-    })),
+    COLUMNS.map((col) => {
+      const colTasks = filteredTasks().filter((t) => t.status === col.status);
+      if (col.status === 'done' || col.status === 'cancelled') {
+        colTasks.sort((a, b) => (b.updated_at ?? '').localeCompare(a.updated_at ?? ''));
+      } else {
+        colTasks.sort((a, b) => {
+          const pd = (PRIORITY_RANK[a.priority] ?? 3) - (PRIORITY_RANK[b.priority] ?? 3);
+          return pd !== 0 ? pd : (b.created_at ?? '').localeCompare(a.created_at ?? '');
+        });
+      }
+      return { ...col, tasks: colTasks };
+    }),
   );
 
   function togglePriority(p: TaskPriority) {

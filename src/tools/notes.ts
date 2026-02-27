@@ -9,9 +9,9 @@ export function registerNoteTools(server: McpServer): void {
     {
       title: 'Add Note',
       description:
-        'Add a note to a project or task. Proactively use this when the user shares context about architecture, bugs, ideas, research findings, or any important information worth remembering.',
+        'Add a note to a project or task. Proactively use this when the user shares context about architecture, bugs, ideas, research findings, or any important information worth remembering. Always specify the project parameter when you know which project is active.',
       inputSchema: {
-        project: z.string().optional().describe('Project name or ID'),
+        project: z.string().optional().describe('Project name or ID (always pass this when known — omitting may target the wrong project)'),
         content: z.string().describe('The note content'),
         category: z
           .enum(['general', 'architecture', 'bug', 'idea', 'research', 'meeting', 'review'])
@@ -27,7 +27,6 @@ export function registerNoteTools(server: McpServer): void {
         return { content: [{ type: 'text' as const, text: project ? `Project "${project}" not found.` : 'No active projects found. Create a project first.' }], isError: true };
       }
 
-      const sessionPreamble = maybeAutoSession(resolved.id);
       const db = getDb();
       const id = generateId();
       db.prepare(
@@ -41,11 +40,10 @@ export function registerNoteTools(server: McpServer): void {
         tags ? JSON.stringify(tags) : null,
       );
 
-      const resultText = JSON.stringify({ note_id: id, message: `Note added to ${resolved.name} (${category ?? 'general'})` });
       return {
         content: [{
           type: 'text' as const,
-          text: sessionPreamble ? `${sessionPreamble}\n\n---\n\n${resultText}` : resultText,
+          text: JSON.stringify({ note_id: id, message: `Note added to ${resolved.name} (${category ?? 'general'})` }),
         }],
       };
     },
@@ -113,7 +111,6 @@ export function registerNoteTools(server: McpServer): void {
         return { content: [{ type: 'text' as const, text: project ? `Project "${project}" not found.` : 'No active projects found. Create a project first.' }], isError: true };
       }
 
-      const sessionPreamble = maybeAutoSession(resolved.id);
       const db = getDb();
       const id = generateId();
       db.prepare(
@@ -122,11 +119,10 @@ export function registerNoteTools(server: McpServer): void {
          ON CONFLICT(project_id, key) DO UPDATE SET value = excluded.value, category = excluded.category`
       ).run(id, resolved.id, key, value, category ?? 'general');
 
-      const resultText = JSON.stringify({ message: `Context set: "${key}" = "${value}" in ${resolved.name}` });
       return {
         content: [{
           type: 'text' as const,
-          text: sessionPreamble ? `${sessionPreamble}\n\n---\n\n${resultText}` : resultText,
+          text: JSON.stringify({ message: `Context set: "${key}" = "${value}" in ${resolved.name}` }),
         }],
       };
     },

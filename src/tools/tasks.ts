@@ -25,7 +25,6 @@ export function registerTaskTools(server: McpServer): void {
         return { content: [{ type: 'text' as const, text: project ? `Project "${project}" not found.` : 'No active projects found. Create a project first.' }], isError: true };
       }
 
-      const sessionPreamble = maybeAutoSession(resolved.id);
       const db = getDb();
       const id = generateId();
       const seqRow = db.prepare('SELECT COALESCE(MAX(seq), 0) + 1 AS next_seq FROM tasks WHERE project_id = ?').get(resolved.id) as { next_seq: number };
@@ -46,15 +45,14 @@ export function registerTaskTools(server: McpServer): void {
       const proj = db.prepare('SELECT slug FROM projects WHERE id = ?').get(resolved.id) as { slug: string } | undefined;
       const short_id = proj?.slug ? `${proj.slug}-${seq}` : null;
 
-      const resultText = JSON.stringify({
-        task_id: id,
-        short_id,
-        message: `Task created: "${title}" in ${resolved.name} (priority: ${priority ?? 'medium'})`,
-      });
       return {
         content: [{
           type: 'text' as const,
-          text: sessionPreamble ? `${sessionPreamble}\n\n---\n\n${resultText}` : resultText,
+          text: JSON.stringify({
+            task_id: id,
+            short_id,
+            message: `Task created: "${title}" in ${resolved.name} (priority: ${priority ?? 'medium'})`,
+          }),
         }],
       };
     },
@@ -83,7 +81,6 @@ export function registerTaskTools(server: McpServer): void {
         return { content: [{ type: 'text' as const, text: `Task "${task_id}" not found.` }], isError: true };
       }
 
-      const sessionPreamble = maybeAutoSession(existing.project_id);
       const updates: string[] = [];
       const params: any[] = [];
 
@@ -113,9 +110,8 @@ export function registerTaskTools(server: McpServer): void {
       params.push(task_id);
       db.prepare(`UPDATE tasks SET ${updates.join(', ')} WHERE id = ?`).run(...params);
 
-      const resultText = JSON.stringify({ task_id, message: `Task "${existing.title}" updated.` });
       return {
-        content: [{ type: 'text' as const, text: sessionPreamble ? `${sessionPreamble}\n\n---\n\n${resultText}` : resultText }],
+        content: [{ type: 'text' as const, text: JSON.stringify({ task_id, message: `Task "${existing.title}" updated.` }) }],
       };
     },
   );
