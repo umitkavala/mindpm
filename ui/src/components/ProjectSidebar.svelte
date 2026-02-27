@@ -50,8 +50,9 @@
             <span class="task-count">{project.active_task_count}</span>
           {/if}
         {:else}
-          {#if project.slug}
-            <span class="project-slug-collapsed">{project.slug}</span>
+          <span class="project-slug-collapsed">{project.slug ?? project.id}</span>
+          {#if (project.active_task_count ?? 0) > 0}
+            <span class="task-count">{project.active_task_count}</span>
           {/if}
         {/if}
       </button>
@@ -79,15 +80,15 @@
   }
 
   .sidebar.collapsed {
-    width: 44px;
-    min-width: 44px;
+    width: 90px;
+    min-width: 90px;
   }
 
   .sidebar-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 10px 10px 10px 12px;
+    padding: 10px 8px;
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
     gap: 8px;
@@ -187,11 +188,13 @@
   }
 
   .project-slug-collapsed {
-    font-size: 0.55rem;
+    font-size: 0.65rem;
     color: var(--text-muted);
     line-height: 1;
     overflow: hidden;
     text-overflow: ellipsis;
+    flex: 1;
+    min-width: 0;
   }
 
   .project-item.active .project-slug-collapsed {
