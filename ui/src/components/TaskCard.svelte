@@ -25,13 +25,13 @@
   const tags = $derived(parseTags(task.tags));
   const priorityClass = $derived(`priority-${task.priority}`);
 
-  const isBlocked = $derived(() => {
-    if (!task.blocked_by) return false;
+  const blockerCount = $derived(() => {
+    if (!task.blocked_by) return 0;
     try {
       const ids = JSON.parse(task.blocked_by);
-      return Array.isArray(ids) && ids.length > 0;
+      return Array.isArray(ids) ? ids.length : 0;
     } catch {
-      return false;
+      return 0;
     }
   });
 
@@ -82,10 +82,10 @@
       {/each}
     </div>
   {/if}
-  {#if isBlocked() || subtaskCount > 0}
+  {#if blockerCount() > 0 || subtaskCount > 0}
     <div class="card-footer">
-      {#if isBlocked()}
-        <span class="badge badge-blocked">⊘ blocked</span>
+      {#if blockerCount() > 0}
+        <span class="badge badge-blocked">⊘ blocked by {blockerCount()}</span>
       {/if}
       {#if subtaskCount > 0}
         <span class="badge badge-subtasks">⑂ {subtaskCount}</span>

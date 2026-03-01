@@ -326,6 +326,7 @@
   <TaskModal
     task={editingTask}
     projectId={project.id}
+    allTasks={tasks}
     {defaultStatus}
     onSave={handleSave}
     onClose={() => { showModal = false; editingTask = null; }}

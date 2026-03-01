@@ -71,10 +71,11 @@ export function registerTaskTools(server: McpServer): void {
         status: z.enum(['todo', 'in_progress', 'blocked', 'done', 'cancelled']).optional().describe('New status'),
         priority: z.enum(['critical', 'high', 'medium', 'low']).optional().describe('New priority'),
         tags: z.array(z.string()).optional().describe('New tags (replaces existing)'),
-        blocked_by: z.array(z.string()).optional().describe('Task IDs that block this task'),
+        blocked_by: z.array(z.string()).optional().describe('Task IDs that block this task (replaces existing list)'),
+        addBlockedBy: z.array(z.string()).optional().describe('Task IDs that block this task (appended to existing list)'),
       },
     },
-    async ({ task_id, title, description, status, priority, tags, blocked_by }) => {
+    async ({ task_id, title, description, status, priority, tags, blocked_by, addBlockedBy }) => {
       const db = getDb();
       const existing = db.prepare('SELECT * FROM tasks WHERE id = ?').get(task_id) as Record<string, any> | undefined;
       if (!existing) {
@@ -99,6 +100,15 @@ export function registerTaskTools(server: McpServer): void {
         updates.push('blocked_by = ?');
         params.push(JSON.stringify(blocked_by));
         if (blocked_by.length > 0 && status === undefined) {
+          updates.push("status = 'blocked'");
+        }
+      }
+      if (addBlockedBy !== undefined && addBlockedBy.length > 0) {
+        const existingBlockedBy: string[] = existing.blocked_by ? JSON.parse(existing.blocked_by) : [];
+        const merged = [...new Set([...existingBlockedBy, ...addBlockedBy])];
+        updates.push('blocked_by = ?');
+        params.push(JSON.stringify(merged));
+        if (status === undefined && blocked_by === undefined) {
           updates.push("status = 'blocked'");
         }
       }

@@ -6,6 +6,7 @@
   interface Props {
     task: Task | null;
     projectId: string;
+    allTasks?: Task[];
     defaultStatus?: TaskStatus;
     onSave: (data: {
       title: string;
@@ -17,7 +18,7 @@
     onClose: () => void;
   }
 
-  let { task, projectId, defaultStatus = 'todo', onSave, onClose }: Props = $props();
+  let { task, projectId, allTasks = [], defaultStatus = 'todo', onSave, onClose }: Props = $props();
 
   let title = $state('');
   let description = $state('');
@@ -53,6 +54,18 @@
   });
 
   const isEdit = $derived(task !== null);
+
+  const blockedByTasks = $derived(() => {
+    if (!task?.blocked_by) return [];
+    try {
+      const ids: string[] = JSON.parse(task.blocked_by);
+      if (!Array.isArray(ids) || ids.length === 0) return [];
+      const taskMap = new Map(allTasks.map((t) => [t.id, t]));
+      return ids.map((id) => taskMap.get(id) ?? { id, title: id, short_id: null, status: null });
+    } catch {
+      return [];
+    }
+  });
 
   function formatHistoryEvent(event: TaskHistoryEvent): string {
     switch (event.event) {
@@ -164,6 +177,25 @@
         <button type="submit" class="btn-save">{isEdit ? 'Save' : 'Create'}</button>
       </div>
     </form>
+
+    {#if isEdit && blockedByTasks().length > 0}
+      <div class="blocked-section">
+        <h3 class="section-heading">Blocked by</h3>
+        <div class="blocked-list">
+          {#each blockedByTasks() as blocker}
+            <div class="blocked-item">
+              {#if blocker.short_id}
+                <span class="blocker-id">{blocker.short_id}</span>
+              {/if}
+              <span class="blocker-title">{blocker.title}</span>
+              {#if blocker.status}
+                <span class="blocker-status blocker-status-{blocker.status}">{blocker.status}</span>
+              {/if}
+            </div>
+          {/each}
+        </div>
+      </div>
+    {/if}
 
     {#if isEdit && history.length > 0}
       <div class="history-section">
@@ -338,6 +370,70 @@
     background: var(--primary-hover);
     border-color: var(--primary-hover);
   }
+
+  .blocked-section {
+    margin-top: 18px;
+    border-top: 1px solid var(--border);
+    padding-top: 14px;
+  }
+
+  .section-heading {
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 8px;
+  }
+
+  .blocked-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .blocked-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 8px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+  }
+
+  .blocker-id {
+    font-size: 0.62rem;
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
+
+  .blocker-title {
+    font-size: 0.78rem;
+    color: var(--text);
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .blocker-status {
+    font-size: 0.6rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 1px 5px;
+    border-radius: 2px;
+    border: 1px solid;
+    flex-shrink: 0;
+  }
+
+  .blocker-status-todo { color: var(--text-muted); border-color: var(--border-bright); }
+  .blocker-status-in_progress { color: var(--primary); border-color: var(--primary); }
+  .blocker-status-blocked { color: var(--priority-critical); border-color: var(--priority-critical); }
+  .blocker-status-done { color: var(--priority-low, #4caf50); border-color: currentColor; }
+  .blocker-status-cancelled { color: var(--text-muted); border-color: var(--border); }
 
   .history-section {
     margin-top: 18px;
