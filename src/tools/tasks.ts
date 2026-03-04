@@ -68,7 +68,7 @@ export function registerTaskTools(server: McpServer): void {
         task_id: z.string().describe('Task ID to update'),
         title: z.string().optional().describe('New title'),
         description: z.string().optional().describe('New description'),
-        status: z.enum(['todo', 'in_progress', 'blocked', 'done', 'cancelled']).optional().describe('New status'),
+        status: z.enum(['todo', 'in_progress', 'blocked', 'in_review', 'done', 'cancelled']).optional().describe('New status'),
         priority: z.enum(['critical', 'high', 'medium', 'low']).optional().describe('New priority'),
         tags: z.array(z.string()).optional().describe('New tags (replaces existing)'),
         blocked_by: z.array(z.string()).optional().describe('Task IDs that block this task (replaces existing list)'),
@@ -134,7 +134,7 @@ export function registerTaskTools(server: McpServer): void {
         'List tasks with filters. Defaults to showing non-completed tasks for the most recent active project.',
       inputSchema: {
         project: z.string().optional().describe('Project name or ID'),
-        status: z.enum(['todo', 'in_progress', 'blocked', 'done', 'cancelled']).optional().describe('Filter by status'),
+        status: z.enum(['todo', 'in_progress', 'blocked', 'in_review', 'done', 'cancelled']).optional().describe('Filter by status'),
         priority: z.enum(['critical', 'high', 'medium', 'low']).optional().describe('Filter by priority'),
         tag: z.string().optional().describe('Filter by tag'),
         include_done: z.boolean().optional().describe('Include completed tasks (default: false)'),

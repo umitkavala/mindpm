@@ -160,6 +160,7 @@
               <option value="todo">Todo</option>
               <option value="in_progress">In Progress</option>
               <option value="blocked">Blocked</option>
+              <option value="in_review">In Review</option>
               <option value="done">Done</option>
               <option value="cancelled">Cancelled</option>
             </select>
@@ -432,6 +433,7 @@
   .blocker-status-todo { color: var(--text-muted); border-color: var(--border-bright); }
   .blocker-status-in_progress { color: var(--primary); border-color: var(--primary); }
   .blocker-status-blocked { color: var(--priority-critical); border-color: var(--priority-critical); }
+  .blocker-status-in_review { color: var(--priority-medium, #ff9800); border-color: currentColor; }
   .blocker-status-done { color: var(--priority-low, #4caf50); border-color: currentColor; }
   .blocker-status-cancelled { color: var(--text-muted); border-color: var(--border); }
 

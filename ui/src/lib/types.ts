@@ -61,13 +61,14 @@ export interface TaskHistoryEvent {
   created_at: string;
 }
 
-export type TaskStatus = 'todo' | 'in_progress' | 'blocked' | 'done' | 'cancelled';
+export type TaskStatus = 'todo' | 'in_progress' | 'blocked' | 'in_review' | 'done' | 'cancelled';
 export type TaskPriority = 'critical' | 'high' | 'medium' | 'low';
 
 export const COLUMNS: { status: TaskStatus; label: string }[] = [
   { status: 'todo', label: 'Todo' },
   { status: 'in_progress', label: 'In Progress' },
   { status: 'blocked', label: 'Blocked' },
+  { status: 'in_review', label: 'In Review' },
   { status: 'done', label: 'Done' },
   { status: 'cancelled', label: 'Cancelled' },
 ];

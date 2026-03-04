@@ -21,7 +21,7 @@ export function createSchema(db: Database.Database): void {
       seq INTEGER,
       title TEXT NOT NULL,
       description TEXT,
-      status TEXT DEFAULT 'todo' CHECK(status IN ('todo', 'in_progress', 'blocked', 'done', 'cancelled')),
+      status TEXT DEFAULT 'todo' CHECK(status IN ('todo', 'in_progress', 'blocked', 'in_review', 'done', 'cancelled')),
       priority TEXT DEFAULT 'medium' CHECK(priority IN ('critical', 'high', 'medium', 'low')),
       tags TEXT,
       parent_task_id TEXT REFERENCES tasks(id),
@@ -178,6 +178,49 @@ export function runMigrations(db: Database.Database): void {
   const decisionCols = (db.pragma('table_info(decisions)') as { name: string }[]).map(c => c.name);
   if (!decisionCols.includes('task_id')) {
     db.exec('ALTER TABLE decisions ADD COLUMN task_id TEXT REFERENCES tasks(id)');
+  }
+
+  // Migrate tasks table CHECK constraint to add in_review status
+  const tasksSchemaSql = (db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'").get() as { sql: string } | undefined)?.sql ?? '';
+  if (!tasksSchemaSql.includes('in_review')) {
+    db.pragma('foreign_keys = OFF');
+    db.transaction(() => {
+      db.exec(`
+        CREATE TABLE tasks_new (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL REFERENCES projects(id),
+          seq INTEGER,
+          title TEXT NOT NULL,
+          description TEXT,
+          status TEXT DEFAULT 'todo' CHECK(status IN ('todo', 'in_progress', 'blocked', 'in_review', 'done', 'cancelled')),
+          priority TEXT DEFAULT 'medium' CHECK(priority IN ('critical', 'high', 'medium', 'low')),
+          tags TEXT,
+          parent_task_id TEXT REFERENCES tasks(id),
+          blocked_by TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          completed_at DATETIME
+        );
+        INSERT INTO tasks_new SELECT * FROM tasks;
+        DROP TABLE tasks;
+        ALTER TABLE tasks_new RENAME TO tasks;
+      `);
+    })();
+    db.pragma('foreign_keys = ON');
+    db.exec(`
+      CREATE TRIGGER IF NOT EXISTS trg_tasks_updated_at
+      AFTER UPDATE ON tasks
+      FOR EACH ROW
+      WHEN NEW.updated_at = OLD.updated_at
+      BEGIN
+        UPDATE tasks SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+      END;
+      CREATE INDEX IF NOT EXISTS idx_tasks_project_id ON tasks(project_id);
+      CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+      CREATE INDEX IF NOT EXISTS idx_tasks_priority ON tasks(priority);
+      CREATE INDEX IF NOT EXISTS idx_tasks_created_at ON tasks(created_at);
+      CREATE INDEX IF NOT EXISTS idx_tasks_seq ON tasks(project_id, seq);
+    `);
   }
 
   // Backfill task_history created events for existing tasks (run once)
