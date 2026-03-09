@@ -6,12 +6,12 @@
     "url": "https://github.com/umitkavala/mindpm",
     "source": "github"
   },
-  "version": "1.2.32",
+  "version": "1.2.33",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "mindpm",
-      "version": "1.2.32",
+      "version": "1.2.33",
       "transport": {
         "type": "stdio"
       },

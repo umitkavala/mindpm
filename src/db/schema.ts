@@ -201,7 +201,8 @@ export function runMigrations(db: Database.Database): void {
           updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
           completed_at DATETIME
         );
-        INSERT INTO tasks_new SELECT * FROM tasks;
+        INSERT INTO tasks_new (id, project_id, seq, title, description, status, priority, tags, parent_task_id, blocked_by, created_at, updated_at, completed_at)
+        SELECT id, project_id, seq, title, description, status, priority, tags, parent_task_id, blocked_by, created_at, updated_at, completed_at FROM tasks;
         DROP TABLE tasks;
         ALTER TABLE tasks_new RENAME TO tasks;
       `);
