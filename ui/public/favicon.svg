@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Background -->
+  <rect width="32" height="32" rx="4" fill="#111111"/>
+  <!-- Column 1: Todo (muted) -->
+  <rect x="2" y="4" width="8" height="4" rx="1" fill="#3d444d"/>
+  <rect x="2" y="10" width="8" height="4" rx="1" fill="#3d444d"/>
+  <rect x="2" y="16" width="8" height="4" rx="1" fill="#3d444d"/>
+  <!-- Column 2: In Progress (amber) -->
+  <rect x="12" y="4" width="8" height="4" rx="1" fill="#d29922"/>
+  <rect x="12" y="10" width="8" height="4" rx="1" fill="#d29922"/>
+  <!-- Column 3: Done (green) -->
+  <rect x="22" y="4" width="8" height="4" rx="1" fill="#39d353"/>
+  <rect x="22" y="10" width="8" height="4" rx="1" fill="#39d353"/>
+  <rect x="22" y="16" width="8" height="4" rx="1" fill="#39d353"/>
+  <rect x="22" y="22" width="8" height="4" rx="1" fill="#39d353"/>
+</svg>
