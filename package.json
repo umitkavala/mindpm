@@ -18,7 +18,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "release": "gh release create v$(node -p \"require('./package.json').version\") --generate-notes --title \"v$(node -p \"require('./package.json').version\")\" --target main"
   },
   "keywords": [
     "mcp",
