@@ -1,6 +1,7 @@
 import { IncomingMessage, ServerResponse } from 'node:http';
 import { getDb, generateId, resolveProjectOrDefault, resolveProjectId, recordTaskHistory } from '../db/queries.js';
 import { generateSlug } from '../utils/ids.js';
+import { computeDeliveryMetrics } from '../db/metrics.js';
 import { matchRoute, parseBody, sendJson } from './http.js';
 
 type RouteHandler = (
@@ -252,6 +253,21 @@ const getTaskHistory: RouteHandler = async (_req, res, params) => {
   sendJson(res, 200, rows);
 };
 
+// --- Metrics handler ---
+
+const getMetrics: RouteHandler = async (req, res, params) => {
+  const db = getDb();
+  const project = db.prepare('SELECT id, name FROM projects WHERE id = ?').get(params.pid) as { id: string; name: string } | undefined;
+  if (!project) {
+    sendJson(res, 404, { error: 'Project not found' });
+    return;
+  }
+  const url = new URL(req.url || '/', 'http://localhost');
+  const days = Math.min(365, Math.max(1, parseInt(url.searchParams.get('days') || '30', 10)));
+  const metrics = computeDeliveryMetrics(db, project.id, project.name, days);
+  sendJson(res, 200, metrics);
+};
+
 // --- Session handlers ---
 
 const createSession: RouteHandler = async (req, res, params) => {
@@ -303,6 +319,7 @@ const routes: Route[] = [
   { method: 'POST', pattern: '/api/projects/:pid/sessions', handler: createSession },
   { method: 'GET', pattern: '/api/projects/:pid/notes', handler: listNotes },
   { method: 'GET', pattern: '/api/projects/:pid/decisions', handler: listDecisions },
+  { method: 'GET', pattern: '/api/projects/:pid/metrics', handler: getMetrics },
   { method: 'GET', pattern: '/api/projects/:pid/tasks', handler: listTasks },
   { method: 'POST', pattern: '/api/projects/:pid/tasks', handler: createTask },
   { method: 'PATCH', pattern: '/api/tasks/:id', handler: updateTask },

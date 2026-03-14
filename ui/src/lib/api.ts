@@ -1,4 +1,4 @@
-import type { Project, Task, Note, Decision, TaskHistoryEvent } from './types.js';
+import type { Project, Task, Note, Decision, TaskHistoryEvent, DeliveryMetrics } from './types.js';
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
@@ -49,4 +49,7 @@ export const api = {
 
   getTaskHistory: (taskId: string) =>
     request<TaskHistoryEvent[]>(`/tasks/${taskId}/history`),
+
+  getMetrics: (projectId: string, days?: number) =>
+    request<DeliveryMetrics>(`/projects/${projectId}/metrics${days ? `?days=${days}` : ''}`),
 };

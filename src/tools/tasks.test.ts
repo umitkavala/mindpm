@@ -167,6 +167,30 @@ describe('update_task', () => {
     const result = await callTool('update_task', { task_id: 't1' });
     expect(result.isError).toBe(true);
   });
+
+  it('logs status change to task_history', async () => {
+    const db = getTestDb();
+    seedProject(db, { id: 'p1', name: 'P' });
+    seedTask(db, 'p1', { id: 't1', status: 'todo' });
+
+    await callTool('update_task', { task_id: 't1', status: 'in_progress' });
+
+    const history = db.prepare('SELECT * FROM task_history WHERE task_id = ? AND event = ?').all('t1', 'status_changed') as any[];
+    expect(history).toHaveLength(1);
+    expect(history[0].old_value).toBe('todo');
+    expect(history[0].new_value).toBe('in_progress');
+  });
+
+  it('does not log to task_history when status unchanged', async () => {
+    const db = getTestDb();
+    seedProject(db, { id: 'p1', name: 'P' });
+    seedTask(db, 'p1', { id: 't1', status: 'todo' });
+
+    await callTool('update_task', { task_id: 't1', title: 'New title' });
+
+    const history = db.prepare('SELECT * FROM task_history WHERE task_id = ? AND event = ?').all('t1', 'status_changed') as any[];
+    expect(history).toHaveLength(0);
+  });
 });
 
 describe('list_tasks', () => {

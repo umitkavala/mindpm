@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod/v4';
-import { getDb, generateId, resolveProjectOrDefault } from '../db/queries.js';
+import { getDb, generateId, resolveProjectOrDefault, recordTaskHistory } from '../db/queries.js';
 import { maybeAutoSession } from './auto-session.js';
 
 export function registerTaskTools(server: McpServer): void {
@@ -119,6 +119,10 @@ export function registerTaskTools(server: McpServer): void {
 
       params.push(task_id);
       db.prepare(`UPDATE tasks SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+
+      if (status !== undefined && status !== existing.status) {
+        recordTaskHistory(task_id, 'status_changed', existing.status, status);
+      }
 
       return {
         content: [{ type: 'text' as const, text: JSON.stringify({ task_id, message: `Task "${existing.title}" updated.` }) }],

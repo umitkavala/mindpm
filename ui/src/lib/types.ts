@@ -61,6 +61,16 @@ export interface TaskHistoryEvent {
   created_at: string;
 }
 
+export interface DeliveryMetrics {
+  project: string;
+  period: string;
+  throughput: { tasks_completed: number; per_week_avg: number; trend: 'improving' | 'declining' | 'stable' };
+  lead_time: { median_days: number; p90_days: number; trend: 'improving' | 'declining' | 'stable' } | { note: string };
+  flow_efficiency: { blocked_rate_pct: number | null; avg_blocked_days: number | null; currently_blocked: number };
+  dora_tier: 'Elite' | 'High' | 'Medium' | 'Low' | 'unknown';
+  insights: string[];
+}
+
 export type TaskStatus = 'todo' | 'in_progress' | 'blocked' | 'in_review' | 'done' | 'cancelled';
 export type TaskPriority = 'critical' | 'high' | 'medium' | 'low';
 

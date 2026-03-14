@@ -7,8 +7,9 @@
   import NotesView from './components/NotesView.svelte';
   import DecisionsView from './components/DecisionsView.svelte';
   import CommandPalette from './components/CommandPalette.svelte';
+  import MetricsView from './components/MetricsView.svelte';
 
-  type View = 'kanban' | 'notes' | 'decisions';
+  type View = 'kanban' | 'notes' | 'decisions' | 'metrics';
 
   let projects: Project[] = $state([]);
   let selectedProjectId: string | null = $state(null);
@@ -107,6 +108,7 @@
           <button class="tab" class:active={activeView === 'kanban'} onclick={() => activeView = 'kanban'}>Kanban</button>
           <button class="tab" class:active={activeView === 'notes'} onclick={() => activeView = 'notes'}>Notes</button>
           <button class="tab" class:active={activeView === 'decisions'} onclick={() => activeView = 'decisions'}>Decisions</button>
+          <button class="tab" class:active={activeView === 'metrics'} onclick={() => activeView = 'metrics'}>Metrics</button>
         </div>
         {#if activeView === 'kanban'}
           <KanbanBoard
@@ -126,6 +128,8 @@
             projectId={selectedProject.id}
             onOpenTask={(task) => { openTaskFromView = task; activeView = 'kanban'; }}
           />
+        {:else if activeView === 'metrics'}
+          <MetricsView projectId={selectedProject.id} />
         {/if}
       {/if}
     </div>

@@ -9,6 +9,7 @@ import { registerNoteTools } from './tools/notes.js';
 import { registerSessionTools } from './tools/sessions.js';
 import { registerQueryTools } from './tools/queries.js';
 import { registerMetaTools } from './tools/meta.js';
+import { registerDeliveryMetricsTools } from './tools/delivery-metrics.js';
 import { closeDb, ensureDbDirectory } from './db/connection.js';
 import { startHttpServer } from './server/http.js';
 import { Server } from 'node:http';
@@ -37,6 +38,7 @@ registerNoteTools(server);
 registerSessionTools(server);
 registerQueryTools(server);
 registerMetaTools(server);
+registerDeliveryMetricsTools(server);
 
 // Start the server
 let httpServer: Server | undefined;
