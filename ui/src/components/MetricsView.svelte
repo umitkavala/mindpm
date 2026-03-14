@@ -51,7 +51,7 @@
     stable: 'trend-stable',
   };
 
-  function hasLeadTime(lt: DeliveryMetrics['lead_time']): lt is { median_days: number; p90_days: number; trend: string } {
+  function hasLeadTime(lt: DeliveryMetrics['lead_time']): lt is { median_days: number; p90_days: number; trend: 'improving' | 'declining' | 'stable' } {
     return 'median_days' in lt;
   }
 </script>
