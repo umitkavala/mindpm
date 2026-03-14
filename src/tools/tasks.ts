@@ -138,15 +138,16 @@ export function registerTaskTools(server: McpServer): void {
         priority: z.enum(['critical', 'high', 'medium', 'low']).optional().describe('Filter by priority'),
         tag: z.string().optional().describe('Filter by tag'),
         include_done: z.boolean().optional().describe('Include completed tasks (default: false)'),
+        limit: z.number().int().min(1).max(200).optional().describe('Max tasks to return (default: 50)'),
+        offset: z.number().int().min(0).optional().describe('Number of tasks to skip for pagination (default: 0)'),
       },
     },
-    async ({ project, status, priority, tag, include_done }) => {
+    async ({ project, status, priority, tag, include_done, limit = 50, offset = 0 }) => {
       const resolved = resolveProjectOrDefault(project);
       if (!resolved) {
         return { content: [{ type: 'text' as const, text: project ? `Project "${project}" not found.` : 'No active projects found.' }], isError: true };
       }
 
-      const sessionPreamble = maybeAutoSession(resolved.id);
       const db = getDb();
       const conditions: string[] = ['t.project_id = @projectId'];
       const params: Record<string, any> = { projectId: resolved.id };
@@ -168,12 +169,18 @@ export function registerTaskTools(server: McpServer): void {
         params.tag = `"${tag}"`;
       }
 
-      const sql = `SELECT t.*, p.slug || '-' || t.seq AS short_id FROM tasks t JOIN projects p ON t.project_id = p.id WHERE ${conditions.join(' AND ')} ORDER BY CASE t.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 END, t.created_at DESC`;
+      const whereClause = conditions.join(' AND ');
+      const orderClause = `ORDER BY CASE t.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 END, t.created_at DESC`;
+      const total = (db.prepare(`SELECT COUNT(*) as n FROM tasks t WHERE ${whereClause}`).get(params) as { n: number }).n;
+      const sql = `SELECT t.id, t.seq, t.title, t.status, t.priority, t.tags, t.parent_task_id, t.blocked_by, t.created_at, p.slug || '-' || t.seq AS short_id FROM tasks t JOIN projects p ON t.project_id = p.id WHERE ${whereClause} ${orderClause} LIMIT ${limit} OFFSET ${offset}`;
       const rows = db.prepare(sql).all(params);
 
-      const resultText = JSON.stringify({ project: resolved.name, tasks: rows }, null, 2);
+      const tasks = rows.map(row => Object.fromEntries(Object.entries(row as Record<string, unknown>).filter(([, v]) => v != null)));
+      const hasMore = offset + tasks.length < total;
+      const header = hasMore ? `Showing ${offset + 1}–${offset + tasks.length} of ${total} tasks. Use limit/offset or filters to paginate.\n` : '';
+      const resultText = header + JSON.stringify({ project: resolved.name, total, limit, offset, tasks });
       return {
-        content: [{ type: 'text' as const, text: sessionPreamble ? `${sessionPreamble}\n\n---\n\n${resultText}` : resultText }],
+        content: [{ type: 'text' as const, text: resultText }],
       };
     },
   );
