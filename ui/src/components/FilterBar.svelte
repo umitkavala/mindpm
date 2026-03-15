@@ -209,7 +209,7 @@
 
   .filter-label {
     font-size: 0.65rem;
-    color: var(--text-muted);
+    color: var(--text-dim);
     white-space: nowrap;
   }
 
@@ -228,7 +228,7 @@
     border-radius: 2px;
     border: 1px solid var(--border-bright);
     background: none;
-    color: var(--text-muted);
+    color: var(--text-dim);
     transition: border-color 0.1s, color 0.1s, background 0.1s;
   }
 
@@ -254,7 +254,7 @@
     border-radius: 2px;
     border: 1px solid var(--border-bright);
     background: none;
-    color: var(--text-muted);
+    color: var(--text-dim);
     transition: border-color 0.1s, color 0.1s;
     letter-spacing: 0.5px;
   }

@@ -172,7 +172,7 @@
 
   .task-count {
     font-size: 0.62rem;
-    color: var(--text-muted);
+    color: var(--text-dim);
     background: var(--surface-2);
     border: 1px solid var(--border);
     border-radius: 2px;
@@ -189,7 +189,7 @@
 
   .project-slug-collapsed {
     font-size: 0.65rem;
-    color: var(--text-muted);
+    color: var(--text-dim);
     line-height: 1;
     overflow: hidden;
     text-overflow: ellipsis;

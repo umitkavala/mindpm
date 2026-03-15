@@ -164,7 +164,7 @@
     background: none;
     border: none;
     border-bottom: 2px solid transparent;
-    color: var(--text-muted);
+    color: var(--text-dim);
     font-size: 0.72rem;
     font-weight: 600;
     text-transform: uppercase;
@@ -175,7 +175,7 @@
   }
 
   .tab:hover {
-    color: var(--text-dim);
+    color: var(--text);
   }
 
   .tab.active {
