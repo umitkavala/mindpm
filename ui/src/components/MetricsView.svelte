@@ -161,14 +161,14 @@
 
   .toolbar-label {
     font-size: 0.7rem;
-    color: var(--text-muted);
+    color: var(--text-dim);
     margin-right: 4px;
   }
 
   .window-btn {
     background: none;
     border: 1px solid var(--border);
-    color: var(--text-muted);
+    color: var(--text-dim);
     font-size: 0.72rem;
     font-family: inherit;
     padding: 3px 10px;
@@ -178,8 +178,8 @@
   }
 
   .window-btn:hover {
-    color: var(--text-dim);
-    border-color: var(--text-muted);
+    color: var(--text);
+    border-color: var(--text-dim);
   }
 
   .window-btn.active {
@@ -208,7 +208,7 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.8px;
-    color: var(--text-muted);
+    color: var(--text-dim);
   }
 
   .card-value {
@@ -306,7 +306,7 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.8px;
-    color: var(--text-muted);
+    color: var(--text-dim);
     margin-bottom: 2px;
   }
 
