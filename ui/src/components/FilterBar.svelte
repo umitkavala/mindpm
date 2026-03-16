@@ -29,6 +29,14 @@
   let searchInputEl: HTMLInputElement | null = $state(null);
   let tagDropdownOpen = $state(false);
   let tagDropdownEl: HTMLDivElement | null = $state(null);
+  let tagSearch = $state('');
+  let tagSearchInputEl: HTMLInputElement | null = $state(null);
+
+  const visibleTags = $derived(
+    tagSearch.trim()
+      ? allTags.filter(t => t.toLowerCase().includes(tagSearch.trim().toLowerCase()))
+      : allTags
+  );
 
   $effect(() => {
     focusSearch = () => searchInputEl?.focus();
@@ -46,7 +54,16 @@
   };
 
   function handleTagDropdownKeydown(e: KeyboardEvent) {
-    if (e.key === 'Escape') tagDropdownOpen = false;
+    if (e.key === 'Escape') { tagDropdownOpen = false; tagSearch = ''; }
+  }
+
+  function openTagDropdown(e: MouseEvent) {
+    e.stopPropagation();
+    tagDropdownOpen = !tagDropdownOpen;
+    if (tagDropdownOpen) {
+      tagSearch = '';
+      setTimeout(() => tagSearchInputEl?.focus(), 0);
+    }
   }
 
   function handleOutsideClick(e: MouseEvent) {
@@ -95,7 +112,7 @@
       <button
         class="dropdown-trigger"
         class:active={selectedTags.size > 0}
-        onclick={(e) => { e.stopPropagation(); tagDropdownOpen = !tagDropdownOpen; }}
+        onclick={openTagDropdown}
       >
         {#if selectedTags.size > 0}
           [{selectedTags.size}] ▾
@@ -106,7 +123,16 @@
 
       {#if tagDropdownOpen}
         <div class="tag-dropdown">
-          {#each allTags as tag}
+          <div class="tag-search-wrap">
+            <input
+              bind:this={tagSearchInputEl}
+              type="text"
+              placeholder="search tags..."
+              bind:value={tagSearch}
+              onclick={(e) => e.stopPropagation()}
+            />
+          </div>
+          {#each visibleTags as tag}
             <button
               class="tag-option"
               class:selected={selectedTags.has(tag)}
@@ -270,6 +296,32 @@
     background: var(--primary-dim);
   }
 
+  .tag-search-wrap {
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .tag-search-wrap input {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border-bright);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    padding: 3px 8px;
+    font-size: 0.72rem;
+    font-family: var(--font-mono);
+    box-sizing: border-box;
+  }
+
+  .tag-search-wrap input:focus {
+    outline: none;
+    border-color: var(--primary);
+  }
+
+  .tag-search-wrap input::placeholder {
+    color: var(--text-muted);
+  }
+
   .tag-dropdown {
     position: absolute;
     top: calc(100% + 4px);
@@ -277,9 +329,10 @@
     background: var(--surface);
     border: 1px solid var(--border-bright);
     border-radius: var(--radius);
-    min-width: 140px;
+    min-width: 160px;
+    max-height: 260px;
+    overflow-y: auto;
     z-index: 50;
-    overflow: hidden;
   }
 
   .tag-option {
