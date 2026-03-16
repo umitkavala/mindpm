@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod/v4';
-import { getDb, generateId, resolveProjectOrDefault } from '../db/queries.js';
+import { getDb, generateId, resolveProjectOrDefault, resolveProjectError } from '../db/queries.js';
 import { buildSessionText, markSessionStarted } from './auto-session.js';
 
 export function registerSessionTools(server: McpServer): void {
@@ -9,7 +9,7 @@ export function registerSessionTools(server: McpServer): void {
     {
       title: 'Start Session',
       description:
-        'Begin a work session for a project. Returns the full project overview including last session\'s next_steps, active tasks, blockers, and recent decisions. Call this at the start of every conversation. IMPORTANT: Always show the kanban_url to the user as a clickable link so they can open the Kanban board.',
+        'Begin a work session for a project. Returns the full project overview including last session\'s next_steps, active tasks, blockers, and recent decisions. Call this at the start of every conversation. For multi-project conversations, call once per project — after that, pass `project` explicitly on every tool call. IMPORTANT: Always show the kanban_url to the user as a clickable link so they can open the Kanban board.',
       inputSchema: {
         project: z.string().optional().describe('Project name or ID'),
       },
@@ -17,7 +17,7 @@ export function registerSessionTools(server: McpServer): void {
     async ({ project }) => {
       const resolved = resolveProjectOrDefault(project);
       if (!resolved) {
-        return { content: [{ type: 'text' as const, text: project ? `Project "${project}" not found.` : 'No active projects found. Create a project first.' }], isError: true };
+        return { content: [{ type: 'text' as const, text: resolveProjectError(project) }], isError: true };
       }
 
       markSessionStarted(resolved.id);
@@ -44,7 +44,7 @@ export function registerSessionTools(server: McpServer): void {
     async ({ project, summary, tasks_worked_on, decisions_made, next_steps }) => {
       const resolved = resolveProjectOrDefault(project);
       if (!resolved) {
-        return { content: [{ type: 'text' as const, text: project ? `Project "${project}" not found.` : 'No active projects found.' }], isError: true };
+        return { content: [{ type: 'text' as const, text: resolveProjectError(project) }], isError: true };
       }
 
       const db = getDb();

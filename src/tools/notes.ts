@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod/v4';
-import { getDb, generateId, resolveProjectOrDefault } from '../db/queries.js';
+import { getDb, generateId, resolveProjectOrDefault, resolveProjectError } from '../db/queries.js';
 import { maybeAutoSession } from './auto-session.js';
 
 export function registerNoteTools(server: McpServer): void {
@@ -24,7 +24,7 @@ export function registerNoteTools(server: McpServer): void {
     async ({ project, content, category, task_id, tags }) => {
       const resolved = resolveProjectOrDefault(project);
       if (!resolved) {
-        return { content: [{ type: 'text' as const, text: project ? `Project "${project}" not found.` : 'No active projects found. Create a project first.' }], isError: true };
+        return { content: [{ type: 'text' as const, text: resolveProjectError(project) }], isError: true };
       }
 
       const db = getDb();
@@ -66,7 +66,7 @@ export function registerNoteTools(server: McpServer): void {
     async ({ project, query, category }) => {
       const resolved = resolveProjectOrDefault(project);
       if (!resolved) {
-        return { content: [{ type: 'text' as const, text: project ? `Project "${project}" not found.` : 'No active projects found.' }], isError: true };
+        return { content: [{ type: 'text' as const, text: resolveProjectError(project) }], isError: true };
       }
 
       const sessionPreamble = maybeAutoSession(resolved.id);
@@ -108,7 +108,7 @@ export function registerNoteTools(server: McpServer): void {
     async ({ project, key, value, category }) => {
       const resolved = resolveProjectOrDefault(project);
       if (!resolved) {
-        return { content: [{ type: 'text' as const, text: project ? `Project "${project}" not found.` : 'No active projects found. Create a project first.' }], isError: true };
+        return { content: [{ type: 'text' as const, text: resolveProjectError(project) }], isError: true };
       }
 
       const db = getDb();
@@ -141,7 +141,7 @@ export function registerNoteTools(server: McpServer): void {
     async ({ project, key }) => {
       const resolved = resolveProjectOrDefault(project);
       if (!resolved) {
-        return { content: [{ type: 'text' as const, text: project ? `Project "${project}" not found.` : 'No active projects found.' }], isError: true };
+        return { content: [{ type: 'text' as const, text: resolveProjectError(project) }], isError: true };
       }
 
       const sessionPreamble = maybeAutoSession(resolved.id);

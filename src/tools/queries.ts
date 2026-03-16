@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod/v4';
-import { getDb, resolveProjectOrDefault } from '../db/queries.js';
+import { getDb, resolveProjectOrDefault, resolveProjectError } from '../db/queries.js';
 import { maybeAutoSession } from './auto-session.js';
 
 export function registerQueryTools(server: McpServer): void {
@@ -49,7 +49,7 @@ export function registerQueryTools(server: McpServer): void {
     async ({ project }) => {
       const resolved = resolveProjectOrDefault(project);
       if (!resolved) {
-        return { content: [{ type: 'text' as const, text: project ? `Project "${project}" not found.` : 'No active projects found.' }], isError: true };
+        return { content: [{ type: 'text' as const, text: resolveProjectError(project) }], isError: true };
       }
 
       const sessionPreamble = maybeAutoSession(resolved.id);
@@ -128,7 +128,7 @@ export function registerQueryTools(server: McpServer): void {
     async ({ project }) => {
       const resolved = resolveProjectOrDefault(project);
       if (!resolved) {
-        return { content: [{ type: 'text' as const, text: project ? `Project "${project}" not found.` : 'No active projects found.' }], isError: true };
+        return { content: [{ type: 'text' as const, text: resolveProjectError(project) }], isError: true };
       }
 
       const sessionPreamble = maybeAutoSession(resolved.id);
@@ -174,7 +174,7 @@ export function registerQueryTools(server: McpServer): void {
     async ({ project, query }) => {
       const resolved = resolveProjectOrDefault(project);
       if (!resolved) {
-        return { content: [{ type: 'text' as const, text: project ? `Project "${project}" not found.` : 'No active projects found.' }], isError: true };
+        return { content: [{ type: 'text' as const, text: resolveProjectError(project) }], isError: true };
       }
 
       const sessionPreamble = maybeAutoSession(resolved.id);

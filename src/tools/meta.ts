@@ -7,7 +7,9 @@ You have access to mindpm, a persistent project memory tool. Use it proactively 
 ## Session lifecycle
 
 **At the start of every conversation:**
-Call \`start_session\` immediately. It returns your project context: last session summary, active tasks, blockers, and recent decisions. Always show the kanban_url to the user as a clickable link.
+Call \`start_session\` with the project name. It returns your project context: last session summary, active tasks, blockers, and recent decisions. Always show the kanban_url to the user as a clickable link.
+
+If working across **multiple projects** in one conversation, call \`start_session\` once for each project. After that, all tools will require an explicit \`project\` argument — pass it on every call to avoid ambiguity.
 
 **During the conversation:**
 - When work is identified → call \`create_task\`
@@ -16,7 +18,7 @@ Call \`start_session\` immediately. It returns your project context: last sessio
 - When task status changes → call \`update_task\`
 
 **At the end of the conversation:**
-Call \`end_session\` with a summary of what was accomplished and clear next_steps for the following session.
+Call \`end_session\` for each project you worked on, with a summary and clear next_steps.
 
 ## Principles
 

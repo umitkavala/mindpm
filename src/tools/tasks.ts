@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod/v4';
-import { getDb, generateId, resolveProjectOrDefault, recordTaskHistory } from '../db/queries.js';
+import { getDb, generateId, resolveProjectOrDefault, resolveProjectError, recordTaskHistory } from '../db/queries.js';
 import { maybeAutoSession } from './auto-session.js';
 
 export function registerTaskTools(server: McpServer): void {
@@ -22,7 +22,7 @@ export function registerTaskTools(server: McpServer): void {
     async ({ project, title, description, priority, tags, parent_task_id }) => {
       const resolved = resolveProjectOrDefault(project);
       if (!resolved) {
-        return { content: [{ type: 'text' as const, text: project ? `Project "${project}" not found.` : 'No active projects found. Create a project first.' }], isError: true };
+        return { content: [{ type: 'text' as const, text: resolveProjectError(project) }], isError: true };
       }
 
       const db = getDb();
@@ -149,7 +149,7 @@ export function registerTaskTools(server: McpServer): void {
     async ({ project, status, priority, tag, include_done, limit = 50, offset = 0 }) => {
       const resolved = resolveProjectOrDefault(project);
       if (!resolved) {
-        return { content: [{ type: 'text' as const, text: project ? `Project "${project}" not found.` : 'No active projects found.' }], isError: true };
+        return { content: [{ type: 'text' as const, text: resolveProjectError(project) }], isError: true };
       }
 
       const db = getDb();
@@ -230,7 +230,7 @@ export function registerTaskTools(server: McpServer): void {
     async ({ project, limit }) => {
       const resolved = resolveProjectOrDefault(project);
       if (!resolved) {
-        return { content: [{ type: 'text' as const, text: project ? `Project "${project}" not found.` : 'No active projects found.' }], isError: true };
+        return { content: [{ type: 'text' as const, text: resolveProjectError(project) }], isError: true };
       }
 
       const sessionPreamble = maybeAutoSession(resolved.id);

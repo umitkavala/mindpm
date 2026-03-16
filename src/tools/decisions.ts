@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod/v4';
-import { getDb, generateId, resolveProjectOrDefault } from '../db/queries.js';
+import { getDb, generateId, resolveProjectOrDefault, resolveProjectError } from '../db/queries.js';
 import { maybeAutoSession } from './auto-session.js';
 
 export function registerDecisionTools(server: McpServer): void {
@@ -23,7 +23,7 @@ export function registerDecisionTools(server: McpServer): void {
     async ({ project, task_id, title, decision, reasoning, alternatives, tags }) => {
       const resolved = resolveProjectOrDefault(project);
       if (!resolved) {
-        return { content: [{ type: 'text' as const, text: project ? `Project "${project}" not found.` : 'No active projects found. Create a project first.' }], isError: true };
+        return { content: [{ type: 'text' as const, text: resolveProjectError(project) }], isError: true };
       }
 
       const db = getDb();
@@ -65,7 +65,7 @@ export function registerDecisionTools(server: McpServer): void {
     async ({ project, tag, limit }) => {
       const resolved = resolveProjectOrDefault(project);
       if (!resolved) {
-        return { content: [{ type: 'text' as const, text: project ? `Project "${project}" not found.` : 'No active projects found.' }], isError: true };
+        return { content: [{ type: 'text' as const, text: resolveProjectError(project) }], isError: true };
       }
 
       const sessionPreamble = maybeAutoSession(resolved.id);

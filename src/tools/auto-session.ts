@@ -1,24 +1,15 @@
 import type Database from 'better-sqlite3';
 import { getDb, generateId } from '../db/queries.js';
 import { getHttpPort } from '../server/http.js';
+import { markSessionStarted, getSessionStartedProjects, resetAutoSession } from '../utils/session-state.js';
+
+export { markSessionStarted, getSessionStartedProjects, resetAutoSession };
 
 interface ActivityItem {
   type: string;
   id: string;
   title: string;
   timestamp: string;
-}
-
-// Per-process set: tracks which project IDs have had a session started this run
-const autoStartedProjects = new Set<string>();
-
-export function markSessionStarted(projectId: string): void {
-  autoStartedProjects.add(projectId);
-}
-
-/** Reset auto-session state. For use in tests only. */
-export function resetAutoSession(): void {
-  autoStartedProjects.clear();
 }
 
 function getActivitySince(db: Database.Database, projectId: string, cutoffTime: string): ActivityItem[] {
@@ -140,7 +131,7 @@ export function buildSessionText(projectId: string): string {
  * Returns null if the session was already started (no-op).
  */
 export function maybeAutoSession(projectId: string): string | null {
-  if (autoStartedProjects.has(projectId)) return null;
-  autoStartedProjects.add(projectId);
+  if (getSessionStartedProjects().includes(projectId)) return null;
+  markSessionStarted(projectId);
   return buildSessionText(projectId);
 }

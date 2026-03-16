@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod/v4';
-import { getDb, resolveProjectOrDefault } from '../db/queries.js';
+import { getDb, resolveProjectOrDefault, resolveProjectError } from '../db/queries.js';
 import { computeDeliveryMetrics } from '../db/metrics.js';
 
 export function registerDeliveryMetricsTools(server: McpServer): void {
@@ -19,7 +19,7 @@ export function registerDeliveryMetricsTools(server: McpServer): void {
       const resolved = resolveProjectOrDefault(project);
       if (!resolved) {
         return {
-          content: [{ type: 'text' as const, text: project ? `Project "${project}" not found.` : 'No active projects found.' }],
+          content: [{ type: 'text' as const, text: resolveProjectError(project) }],
           isError: true,
         };
       }
