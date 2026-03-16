@@ -15,6 +15,9 @@
   let error: string | null = $state(null);
   let searchQuery = $state('');
   let selectedCategory = $state<string | null>(null);
+  let selectedTags = $state(new Set<string>());
+  let tagDropdownOpen = $state(false);
+  let tagDropdownEl: HTMLDivElement | null = $state(null);
   let searchInputEl: HTMLInputElement | null = $state(null);
 
   $effect(() => {
@@ -22,6 +25,7 @@
     error = null;
     searchQuery = '';
     selectedCategory = null;
+    selectedTags = new Set();
     Promise.all([
       api.getNotes(projectId),
       api.getTasks(projectId),
@@ -41,13 +45,18 @@
     [...new Set(notes.map(n => n.category))].sort()
   );
 
+  const allTags = $derived(
+    [...new Set(notes.flatMap(n => parseTags(n.tags)))].sort()
+  );
+
   const filteredNotes = $derived((() => {
     const q = searchQuery.trim().toLowerCase();
     return notes.filter(n => {
       if (selectedCategory && n.category !== selectedCategory) return false;
+      const tags = parseTags(n.tags);
+      if (selectedTags.size > 0 && !tags.some(t => selectedTags.has(t))) return false;
       if (!q) return true;
       if (n.content.toLowerCase().includes(q)) return true;
-      const tags = parseTags(n.tags);
       if (tags.some(t => t.toLowerCase().includes(q))) return true;
       return false;
     });
@@ -87,10 +96,18 @@
     return safe.replace(new RegExp(pattern, 'gi'), m => `<mark>${m}</mark>`);
   }
 
+  function toggleTag(tag: string) {
+    const next = new Set(selectedTags);
+    next.has(tag) ? next.delete(tag) : next.add(tag);
+    selectedTags = next;
+  }
+
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Escape') {
+      if (tagDropdownOpen) { tagDropdownOpen = false; return; }
       searchQuery = '';
       selectedCategory = null;
+      selectedTags = new Set();
     }
     if (e.key === '/' && document.activeElement !== searchInputEl) {
       e.preventDefault();
@@ -98,10 +115,18 @@
     }
   }
 
-  const hasFilter = $derived(searchQuery.trim() !== '' || selectedCategory !== null);
+  function handleOutsideClick(e: MouseEvent) {
+    if (tagDropdownEl && !tagDropdownEl.contains(e.target as Node)) {
+      tagDropdownOpen = false;
+    }
+  }
+
+  const hasFilter = $derived(
+    searchQuery.trim() !== '' || selectedCategory !== null || selectedTags.size > 0
+  );
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
+<svelte:window onkeydown={handleKeydown} onclick={handleOutsideClick} />
 
 <div class="view">
   {#if !loading && !error && notes.length > 0}
@@ -120,23 +145,58 @@
       </div>
 
       {#if allCategories.length > 1}
-        <div class="category-chips">
-          {#each allCategories as cat}
-            <button
-              class="chip"
-              class:active={selectedCategory === cat}
-              style="--chip-color: {CATEGORY_COLORS[cat] ?? 'var(--text-muted)'}"
-              onclick={() => selectedCategory = selectedCategory === cat ? null : cat}
-            >
-              {cat}
-            </button>
-          {/each}
+        <div class="filter-section">
+          <span class="filter-label">category:</span>
+          <div class="category-chips">
+            {#each allCategories as cat}
+              <button
+                class="chip"
+                class:active={selectedCategory === cat}
+                style="--chip-color: {CATEGORY_COLORS[cat] ?? 'var(--text-muted)'}"
+                onclick={() => selectedCategory = selectedCategory === cat ? null : cat}
+              >
+                {cat}
+              </button>
+            {/each}
+          </div>
+        </div>
+      {/if}
+
+      {#if allTags.length > 0}
+        <div class="filter-section tag-dropdown-wrapper" bind:this={tagDropdownEl}>
+          <span class="filter-label">tags:</span>
+          <button
+            class="dropdown-trigger"
+            class:active={selectedTags.size > 0}
+            onclick={(e) => { e.stopPropagation(); tagDropdownOpen = !tagDropdownOpen; }}
+          >
+            {selectedTags.size > 0 ? `[${selectedTags.size}] ▾` : 'all ▾'}
+          </button>
+          {#if tagDropdownOpen}
+            <div class="tag-dropdown">
+              {#each allTags as tag}
+                <button
+                  class="tag-option"
+                  class:selected={selectedTags.has(tag)}
+                  onclick={(e) => { e.stopPropagation(); toggleTag(tag); }}
+                >
+                  <span class="tag-checkbox">{selectedTags.has(tag) ? '✓' : ' '}</span>
+                  <span class="tag-name">#{tag}</span>
+                </button>
+              {/each}
+              {#if selectedTags.size > 0}
+                <button class="tag-clear" onclick={(e) => { e.stopPropagation(); selectedTags = new Set(); }}>
+                  clear tags
+                </button>
+              {/if}
+            </div>
+          {/if}
         </div>
       {/if}
 
       {#if hasFilter}
         <span class="result-count">{filteredNotes.length} / {notes.length}</span>
-        <button class="clear-all" onclick={() => { searchQuery = ''; selectedCategory = null; }}>
+        <button class="clear-all" onclick={() => { searchQuery = ''; selectedCategory = null; selectedTags = new Set(); }}>
           clear
         </button>
       {/if}
@@ -177,8 +237,8 @@
                   {#each tags as tag}
                     <button
                       class="tag"
-                      class:active={searchQuery.trim().toLowerCase() === tag.toLowerCase()}
-                      onclick={() => searchQuery = tag}
+                      class:active={selectedTags.has(tag)}
+                      onclick={() => toggleTag(tag)}
                     >
                       {tag}
                     </button>
@@ -269,11 +329,112 @@
 
   .clear-input:hover { color: var(--text); }
 
+  .filter-section {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .filter-label {
+    font-size: 0.65rem;
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+
   .category-chips {
     display: flex;
     gap: 4px;
     flex-wrap: wrap;
   }
+
+  .tag-dropdown-wrapper {
+    position: relative;
+  }
+
+  .dropdown-trigger {
+    font-size: 0.62rem;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 2px;
+    border: 1px solid var(--border-bright);
+    background: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: border-color 0.1s, color 0.1s;
+    letter-spacing: 0.5px;
+  }
+
+  .dropdown-trigger:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+  }
+
+  .dropdown-trigger.active {
+    border-color: var(--primary);
+    color: var(--primary);
+    background: var(--primary-dim);
+  }
+
+  .tag-dropdown {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    background: var(--surface);
+    border: 1px solid var(--border-bright);
+    border-radius: var(--radius);
+    min-width: 140px;
+    max-height: 220px;
+    overflow-y: auto;
+    z-index: 50;
+  }
+
+  .tag-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 10px;
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    font-size: 0.72rem;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.1s, color 0.1s;
+  }
+
+  .tag-option:hover { background: var(--surface-2); color: var(--text); }
+  .tag-option.selected { color: var(--primary); }
+
+  .tag-checkbox {
+    font-size: 0.65rem;
+    color: var(--primary);
+    width: 10px;
+    text-align: center;
+    flex-shrink: 0;
+  }
+
+  .tag-option:not(.selected) .tag-checkbox { color: var(--border-bright); }
+  .tag-name { flex: 1; }
+
+  .tag-clear {
+    display: block;
+    width: 100%;
+    padding: 5px 10px;
+    background: none;
+    border: none;
+    border-top: 1px solid var(--border);
+    color: var(--danger);
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+
+  .tag-clear:hover { background: var(--surface-2); }
 
   .chip {
     font-size: 0.62rem;
