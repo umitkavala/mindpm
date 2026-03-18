@@ -72,6 +72,27 @@ export function resolveProjectOrDefault(projectRef?: string): { id: string; name
   return getMostRecentProject();
 }
 
+// Resolve a task_id that may be a hex ID or a short_id like "zrdt-180"
+export function resolveTaskId(taskRef: string): string | null {
+  const db = getDb();
+
+  // Try direct hex ID first
+  const byId = db.prepare('SELECT id FROM tasks WHERE id = ?').get(taskRef) as { id: string } | undefined;
+  if (byId) return byId.id;
+
+  // Try as short_id: slug-seq (e.g. "zrdt-180")
+  const match = taskRef.match(/^(.+)-(\d+)$/);
+  if (match) {
+    const [, slug, seqStr] = match;
+    const row = db.prepare(
+      'SELECT t.id FROM tasks t JOIN projects p ON t.project_id = p.id WHERE LOWER(p.slug) = LOWER(?) AND t.seq = ?'
+    ).get(slug, parseInt(seqStr, 10)) as { id: string } | undefined;
+    if (row) return row.id;
+  }
+
+  return null;
+}
+
 export function recordTaskHistory(
   taskId: string,
   event: string,

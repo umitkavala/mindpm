@@ -6,7 +6,7 @@ vi.mock('./connection.js', () => ({
   closeDb: () => closeTestDb(),
 }));
 
-import { resolveProjectId, getMostRecentProject, resolveProjectOrDefault, resolveProjectError } from './queries.js';
+import { resolveProjectId, getMostRecentProject, resolveProjectOrDefault, resolveProjectError, resolveTaskId } from './queries.js';
 import { markSessionStarted } from '../utils/session-state.js';
 
 beforeEach(() => {
@@ -124,6 +124,40 @@ describe('resolveProjectOrDefault', () => {
     markSessionStarted('p1');
     markSessionStarted('p2');
     expect(resolveProjectOrDefault()).toBeNull();
+  });
+});
+
+describe('resolveTaskId', () => {
+  it('resolves by hex ID', () => {
+    const db = getTestDb();
+    seedProject(db, { id: 'p1', name: 'TestProj' });
+    db.prepare("INSERT INTO tasks (id, project_id, seq, title) VALUES ('abcd1234', 'p1', 1, 'A task')").run();
+    expect(resolveTaskId('abcd1234')).toBe('abcd1234');
+  });
+
+  it('resolves by short ID (slug-seq)', () => {
+    const db = getTestDb();
+    // seedProject doesn't set slug, so set it manually
+    db.prepare("INSERT INTO projects (id, name, slug, status) VALUES ('p1', 'TestProj', 'tp', 'active')").run();
+    db.prepare("INSERT INTO tasks (id, project_id, seq, title) VALUES ('abcd1234', 'p1', 42, 'A task')").run();
+    expect(resolveTaskId('tp-42')).toBe('abcd1234');
+  });
+
+  it('resolves short ID case-insensitively', () => {
+    const db = getTestDb();
+    db.prepare("INSERT INTO projects (id, name, slug, status) VALUES ('p1', 'ZereData', 'zrdt', 'active')").run();
+    db.prepare("INSERT INTO tasks (id, project_id, seq, title) VALUES ('abcd1234', 'p1', 180, 'A task')").run();
+    expect(resolveTaskId('ZRDT-180')).toBe('abcd1234');
+  });
+
+  it('returns null for nonexistent task', () => {
+    expect(resolveTaskId('nonexistent')).toBeNull();
+  });
+
+  it('returns null for nonexistent short ID', () => {
+    const db = getTestDb();
+    db.prepare("INSERT INTO projects (id, name, slug, status) VALUES ('p1', 'TestProj', 'tp', 'active')").run();
+    expect(resolveTaskId('tp-999')).toBeNull();
   });
 });
 

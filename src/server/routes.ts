@@ -1,5 +1,5 @@
 import { IncomingMessage, ServerResponse } from 'node:http';
-import { getDb, generateId, resolveProjectOrDefault, resolveProjectId, recordTaskHistory } from '../db/queries.js';
+import { getDb, generateId, resolveProjectOrDefault, resolveProjectId, recordTaskHistory, resolveTaskId } from '../db/queries.js';
 import { generateSlug } from '../utils/ids.js';
 import { computeDeliveryMetrics } from '../db/metrics.js';
 import { matchRoute, parseBody, sendJson } from './http.js';
@@ -159,7 +159,12 @@ const updateTask: RouteHandler = async (req, res, params) => {
   const db = getDb();
   const body = await parseBody(req);
 
-  const existing = db.prepare('SELECT * FROM tasks WHERE id = ?').get(params.id) as Record<string, unknown> | undefined;
+  const resolvedId = resolveTaskId(params.id as string);
+  if (!resolvedId) {
+    sendJson(res, 404, { error: 'Task not found' });
+    return;
+  }
+  const existing = db.prepare('SELECT * FROM tasks WHERE id = ?').get(resolvedId) as Record<string, unknown> | undefined;
   if (!existing) {
     sendJson(res, 404, { error: 'Task not found' });
     return;
@@ -197,28 +202,34 @@ const updateTask: RouteHandler = async (req, res, params) => {
     return;
   }
 
-  sqlParams.push(params.id);
+  sqlParams.push(resolvedId);
   db.prepare(`UPDATE tasks SET ${updates.join(', ')} WHERE id = ?`).run(...sqlParams);
 
   // Record history for meaningful field changes
   if (body.status !== undefined && body.status !== existing.status) {
-    recordTaskHistory(params.id, 'status_changed', existing.status as string, body.status as string);
+    recordTaskHistory(resolvedId, 'status_changed', existing.status as string, body.status as string);
   }
   if (body.priority !== undefined && body.priority !== existing.priority) {
-    recordTaskHistory(params.id, 'priority_changed', existing.priority as string, body.priority as string);
+    recordTaskHistory(resolvedId, 'priority_changed', existing.priority as string, body.priority as string);
   }
   if (body.title !== undefined && body.title !== existing.title) {
-    recordTaskHistory(params.id, 'title_changed', existing.title as string, body.title as string);
+    recordTaskHistory(resolvedId, 'title_changed', existing.title as string, body.title as string);
   }
 
-  const updated = db.prepare('SELECT t.*, p.slug || \'-\' || t.seq AS short_id FROM tasks t JOIN projects p ON t.project_id = p.id WHERE t.id = ?').get(params.id);
+  const updated = db.prepare('SELECT t.*, p.slug || \'-\' || t.seq AS short_id FROM tasks t JOIN projects p ON t.project_id = p.id WHERE t.id = ?').get(resolvedId);
   sendJson(res, 200, updated);
 };
 
 const deleteTask: RouteHandler = async (_req, res, params) => {
   const db = getDb();
 
-  const existing = db.prepare('SELECT * FROM tasks WHERE id = ?').get(params.id);
+  const resolvedId = resolveTaskId(params.id as string);
+  if (!resolvedId) {
+    sendJson(res, 404, { error: 'Task not found' });
+    return;
+  }
+
+  const existing = db.prepare('SELECT * FROM tasks WHERE id = ?').get(resolvedId);
   if (!existing) {
     sendJson(res, 404, { error: 'Task not found' });
     return;
@@ -239,7 +250,7 @@ const deleteTask: RouteHandler = async (_req, res, params) => {
     db.prepare('DELETE FROM tasks WHERE id = ?').run(taskId);
   });
 
-  deleteTransaction(params.id);
+  deleteTransaction(resolvedId);
   sendJson(res, 200, { message: 'Task deleted' });
 };
 
@@ -247,9 +258,14 @@ const deleteTask: RouteHandler = async (_req, res, params) => {
 
 const getTaskHistory: RouteHandler = async (_req, res, params) => {
   const db = getDb();
+  const resolvedId = resolveTaskId(params.id as string);
+  if (!resolvedId) {
+    sendJson(res, 200, []);
+    return;
+  }
   const rows = db.prepare(
     'SELECT * FROM task_history WHERE task_id = ? ORDER BY created_at ASC'
-  ).all(params.id);
+  ).all(resolvedId);
   sendJson(res, 200, rows);
 };
 

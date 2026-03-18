@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod/v4';
-import { getDb, generateId, resolveProjectOrDefault, resolveProjectError, recordTaskHistory } from '../db/queries.js';
+import { getDb, generateId, resolveProjectOrDefault, resolveProjectError, recordTaskHistory, resolveTaskId } from '../db/queries.js';
 import { maybeAutoSession } from './auto-session.js';
 
 export function registerTaskTools(server: McpServer): void {
@@ -65,7 +65,7 @@ export function registerTaskTools(server: McpServer): void {
       description:
         'Update any field of a task. Proactively use this when a task status changes, priorities shift, or new information comes in.',
       inputSchema: {
-        task_id: z.string().describe('Task ID to update'),
+        task_id: z.string().describe('Task ID to update (hex ID or short ID like "zrdt-180")'),
         title: z.string().optional().describe('New title'),
         description: z.string().optional().describe('New description'),
         status: z.enum(['todo', 'in_progress', 'blocked', 'in_review', 'done', 'cancelled']).optional().describe('New status'),
@@ -77,7 +77,11 @@ export function registerTaskTools(server: McpServer): void {
     },
     async ({ task_id, title, description, status, priority, tags, blocked_by, addBlockedBy }) => {
       const db = getDb();
-      const existing = db.prepare('SELECT * FROM tasks WHERE id = ?').get(task_id) as Record<string, any> | undefined;
+      const resolvedId = resolveTaskId(task_id);
+      if (!resolvedId) {
+        return { content: [{ type: 'text' as const, text: `Task "${task_id}" not found.` }], isError: true };
+      }
+      const existing = db.prepare('SELECT * FROM tasks WHERE id = ?').get(resolvedId) as Record<string, any> | undefined;
       if (!existing) {
         return { content: [{ type: 'text' as const, text: `Task "${task_id}" not found.` }], isError: true };
       }
@@ -117,15 +121,15 @@ export function registerTaskTools(server: McpServer): void {
         return { content: [{ type: 'text' as const, text: 'No updates provided.' }], isError: true };
       }
 
-      params.push(task_id);
+      params.push(resolvedId);
       db.prepare(`UPDATE tasks SET ${updates.join(', ')} WHERE id = ?`).run(...params);
 
       if (status !== undefined && status !== existing.status) {
-        recordTaskHistory(task_id, 'status_changed', existing.status, status);
+        recordTaskHistory(resolvedId, 'status_changed', existing.status, status);
       }
 
       return {
-        content: [{ type: 'text' as const, text: JSON.stringify({ task_id, message: `Task "${existing.title}" updated.` }) }],
+        content: [{ type: 'text' as const, text: JSON.stringify({ task_id: resolvedId, message: `Task "${existing.title}" updated.` }) }],
       };
     },
   );
@@ -195,19 +199,23 @@ export function registerTaskTools(server: McpServer): void {
       title: 'Get Task',
       description: 'Get full detail for a specific task including sub-tasks and related notes.',
       inputSchema: {
-        task_id: z.string().describe('Task ID'),
+        task_id: z.string().describe('Task ID (hex ID or short ID like "zrdt-180")'),
       },
     },
     async ({ task_id }) => {
       const db = getDb();
-      const task = db.prepare('SELECT t.*, p.slug || \'-\' || t.seq AS short_id FROM tasks t JOIN projects p ON t.project_id = p.id WHERE t.id = ?').get(task_id) as Record<string, any> | undefined;
+      const resolvedId = resolveTaskId(task_id);
+      if (!resolvedId) {
+        return { content: [{ type: 'text' as const, text: `Task "${task_id}" not found.` }], isError: true };
+      }
+      const task = db.prepare('SELECT t.*, p.slug || \'-\' || t.seq AS short_id FROM tasks t JOIN projects p ON t.project_id = p.id WHERE t.id = ?').get(resolvedId) as Record<string, any> | undefined;
       if (!task) {
         return { content: [{ type: 'text' as const, text: `Task "${task_id}" not found.` }], isError: true };
       }
 
       const sessionPreamble = maybeAutoSession(task.project_id);
-      const subtasks = db.prepare('SELECT t.*, p.slug || \'-\' || t.seq AS short_id FROM tasks t JOIN projects p ON t.project_id = p.id WHERE t.parent_task_id = ?').all(task_id);
-      const notes = db.prepare('SELECT * FROM notes WHERE task_id = ? ORDER BY created_at DESC').all(task_id);
+      const subtasks = db.prepare('SELECT t.*, p.slug || \'-\' || t.seq AS short_id FROM tasks t JOIN projects p ON t.project_id = p.id WHERE t.parent_task_id = ?').all(resolvedId);
+      const notes = db.prepare('SELECT * FROM notes WHERE task_id = ? ORDER BY created_at DESC').all(resolvedId);
 
       const resultText = JSON.stringify({ task, subtasks, notes }, null, 2);
       return {

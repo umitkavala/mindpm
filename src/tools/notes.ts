@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod/v4';
-import { getDb, generateId, resolveProjectOrDefault, resolveProjectError } from '../db/queries.js';
+import { getDb, generateId, resolveProjectOrDefault, resolveProjectError, resolveTaskId } from '../db/queries.js';
 import { maybeAutoSession } from './auto-session.js';
 
 export function registerNoteTools(server: McpServer): void {
@@ -17,7 +17,7 @@ export function registerNoteTools(server: McpServer): void {
           .enum(['general', 'architecture', 'bug', 'idea', 'research', 'meeting', 'review'])
           .optional()
           .describe('Note category (default: general)'),
-        task_id: z.string().optional().describe('Link this note to a specific task'),
+        task_id: z.string().optional().describe('Link this note to a specific task (hex ID or short ID like "zrdt-180")'),
         tags: z.array(z.string()).optional().describe('Tags for categorization'),
       },
     },
@@ -29,12 +29,13 @@ export function registerNoteTools(server: McpServer): void {
 
       const db = getDb();
       const id = generateId();
+      const resolvedTaskId = task_id ? resolveTaskId(task_id) : null;
       db.prepare(
         `INSERT INTO notes (id, project_id, task_id, content, category, tags) VALUES (?, ?, ?, ?, ?, ?)`
       ).run(
         id,
         resolved.id,
-        task_id ?? null,
+        resolvedTaskId,
         content,
         category ?? 'general',
         tags ? JSON.stringify(tags) : null,
