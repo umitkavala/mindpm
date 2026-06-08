@@ -23,8 +23,14 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
-  getTasks: (projectId: string) =>
-    request<Task[]>(`/projects/${projectId}/tasks?include_done=true`),
+  // Active tasks only (todo/in_progress/blocked/in_review). Pass includeDone for
+  // the full set — used where links to completed tasks must resolve.
+  getTasks: (projectId: string, includeDone = false) =>
+    request<Task[]>(`/projects/${projectId}/tasks${includeDone ? '?include_done=true' : ''}`),
+
+  // A page of terminal-status tasks (done/cancelled), most recent first.
+  getArchivedTasks: (projectId: string, status: 'done' | 'cancelled', limit: number, offset: number) =>
+    request<Task[]>(`/projects/${projectId}/tasks?status=${status}&limit=${limit}&offset=${offset}`),
 
   createTask: (projectId: string, data: { title: string; description?: string; priority?: string; tags?: string[] }) =>
     request<Task>(`/projects/${projectId}/tasks`, {
@@ -41,11 +47,11 @@ export const api = {
   deleteTask: (id: string) =>
     request<{ message: string }>(`/tasks/${id}`, { method: 'DELETE' }),
 
-  getNotes: (projectId: string) =>
-    request<Note[]>(`/projects/${projectId}/notes`),
+  getNotes: (projectId: string, limit = 100, offset = 0) =>
+    request<Note[]>(`/projects/${projectId}/notes?limit=${limit}&offset=${offset}`),
 
-  getDecisions: (projectId: string) =>
-    request<Decision[]>(`/projects/${projectId}/decisions`),
+  getDecisions: (projectId: string, limit = 100, offset = 0) =>
+    request<Decision[]>(`/projects/${projectId}/decisions?limit=${limit}&offset=${offset}`),
 
   getTaskHistory: (taskId: string) =>
     request<TaskHistoryEvent[]>(`/tasks/${taskId}/history`),

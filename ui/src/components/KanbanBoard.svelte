@@ -21,6 +21,13 @@
   let loading = $state(true);
   let error: string | null = $state(null);
 
+  // Terminal columns (done/cancelled) are loaded a page at a time so a large
+  // archive never has to be fetched or rendered all at once.
+  const ARCHIVE_PAGE = 50;
+  type TerminalStatus = 'done' | 'cancelled';
+  let archiveMore = $state<Record<TerminalStatus, boolean>>({ done: false, cancelled: false });
+  let archiveLoading = $state<Record<TerminalStatus, boolean>>({ done: false, cancelled: false });
+
   // Modal state
   let showModal = $state(false);
   let editingTask: Task | null = $state(null);
@@ -165,12 +172,38 @@
     loading = true;
     error = null;
     try {
-      tasks = await api.getTasks(project.id);
+      const [active, done, cancelled] = await Promise.all([
+        api.getTasks(project.id),
+        api.getArchivedTasks(project.id, 'done', ARCHIVE_PAGE, 0),
+        api.getArchivedTasks(project.id, 'cancelled', ARCHIVE_PAGE, 0),
+      ]);
+      tasks = [...active, ...done, ...cancelled];
+      archiveMore = { done: done.length === ARCHIVE_PAGE, cancelled: cancelled.length === ARCHIVE_PAGE };
     } catch (e: any) {
       error = e.message;
     } finally {
       loading = false;
     }
+  }
+
+  async function loadMoreArchive(status: TerminalStatus) {
+    if (archiveLoading[status]) return;
+    archiveLoading = { ...archiveLoading, [status]: true };
+    try {
+      const offset = tasks.filter((t) => t.status === status).length;
+      const page = await api.getArchivedTasks(project.id, status, ARCHIVE_PAGE, offset);
+      const existing = new Set(tasks.map((t) => t.id));
+      tasks = [...tasks, ...page.filter((t) => !existing.has(t.id))];
+      archiveMore = { ...archiveMore, [status]: page.length === ARCHIVE_PAGE };
+    } catch (e: any) {
+      error = e.message;
+    } finally {
+      archiveLoading = { ...archiveLoading, [status]: false };
+    }
+  }
+
+  function isTerminal(status: TaskStatus): status is TerminalStatus {
+    return status === 'done' || status === 'cancelled';
   }
 
   // Reload tasks when project changes
@@ -306,11 +339,15 @@
   {:else}
     <div class="board">
       {#each tasksByStatus as column (column.status)}
+        {@const term = isTerminal(column.status) ? column.status : null}
         <KanbanColumn
           status={column.status}
           label={column.label}
           tasks={column.tasks}
           subtaskCounts={subtaskCounts()}
+          hasMore={term ? archiveMore[term] : false}
+          loadingMore={term ? archiveLoading[term] : false}
+          onLoadMore={term ? () => loadMoreArchive(term) : undefined}
           onEdit={openEditModal}
           onDelete={confirmDelete}
           onDragStart={handleDragStart}

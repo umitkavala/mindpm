@@ -10,6 +10,9 @@
     label: string;
     tasks: Task[];
     subtaskCounts: Map<string, number>;
+    hasMore?: boolean;
+    loadingMore?: boolean;
+    onLoadMore?: () => void;
     onEdit: (task: Task) => void;
     onDelete: (task: Task) => void;
     onDragStart: (e: DragEvent, task: Task) => void;
@@ -17,7 +20,7 @@
     onAddTask: (status: TaskStatus) => void;
   }
 
-  let { status, label, tasks, subtaskCounts, onEdit, onDelete, onDragStart, onDrop, onAddTask }: Props = $props();
+  let { status, label, tasks, subtaskCounts, hasMore = false, loadingMore = false, onLoadMore, onEdit, onDelete, onDragStart, onDrop, onAddTask }: Props = $props();
 
   let dragOver = $state(false);
 
@@ -89,7 +92,7 @@
       <h3>
         <span class="chevron">▸</span>
         {label}
-        <span class="count" class:wip={wipWarning}>[{tasks.length}{wipWarning ? ' ⚠' : ''}]</span>
+        <span class="count" class:wip={wipWarning}>[{tasks.length}{hasMore ? '+' : ''}{wipWarning ? ' ⚠' : ''}]</span>
       </h3>
       <div class="header-actions">
         {#if status === 'todo'}
@@ -107,6 +110,11 @@
       {#each tasks as task (task.id)}
         <TaskCard {task} subtaskCount={subtaskCounts.get(task.id) ?? 0} {onEdit} {onDelete} {onDragStart} />
       {/each}
+      {#if hasMore && onLoadMore}
+        <button class="load-more" disabled={loadingMore} onclick={onLoadMore}>
+          {loadingMore ? 'Loading…' : 'Load more'}
+        </button>
+      {/if}
     </div>
   {/if}
 </div>
@@ -282,5 +290,30 @@
     gap: 6px;
     overflow-y: auto;
     flex: 1;
+  }
+
+  .load-more {
+    margin: 2px 0;
+    padding: 6px;
+    background: none;
+    border: 1px dashed var(--border-bright);
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    transition: border-color 0.1s, color 0.1s;
+  }
+
+  .load-more:hover:not(:disabled) {
+    border-color: var(--primary);
+    color: var(--primary);
+  }
+
+  .load-more:disabled {
+    opacity: 0.6;
+    cursor: default;
   }
 </style>

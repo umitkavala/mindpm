@@ -9,10 +9,14 @@
 
   let { projectId, onOpenTask }: Props = $props();
 
+  const PAGE = 100;
+
   let notes: Note[] = $state([]);
   let tasks: Task[] = $state([]);
   let loading = $state(true);
   let error: string | null = $state(null);
+  let hasMore = $state(false);
+  let loadingMore = $state(false);
   let searchQuery = $state('');
   let selectedCategory = $state<string | null>(null);
   let selectedTags = $state(new Set<string>());
@@ -27,17 +31,33 @@
     selectedCategory = null;
     selectedTags = new Set();
     Promise.all([
-      api.getNotes(projectId),
-      api.getTasks(projectId),
+      api.getNotes(projectId, PAGE, 0),
+      api.getTasks(projectId, true),
     ]).then(([n, t]) => {
       notes = n;
       tasks = t;
+      hasMore = n.length === PAGE;
     }).catch((e) => {
       error = e.message;
     }).finally(() => {
       loading = false;
     });
   });
+
+  async function loadMore() {
+    if (loadingMore) return;
+    loadingMore = true;
+    try {
+      const page = await api.getNotes(projectId, PAGE, notes.length);
+      const existing = new Set(notes.map((n) => n.id));
+      notes = [...notes, ...page.filter((n) => !existing.has(n.id))];
+      hasMore = page.length === PAGE;
+    } catch (e: any) {
+      error = e.message;
+    } finally {
+      loadingMore = false;
+    }
+  }
 
   const taskMap = $derived(new Map(tasks.map((t) => [t.id, t])));
 
@@ -256,6 +276,11 @@
           {/if}
         </div>
       {/each}
+      {#if hasMore && !hasFilter}
+        <button class="load-more" disabled={loadingMore} onclick={loadMore}>
+          {loadingMore ? 'loading…' : 'load more'}
+        </button>
+      {/if}
     </div>
   {/if}
 </div>
@@ -514,6 +539,28 @@
     padding: 16px 20px;
     max-width: 760px;
   }
+
+  .load-more {
+    align-self: flex-start;
+    margin-top: 4px;
+    padding: 6px 16px;
+    background: none;
+    border: 1px dashed var(--border-bright);
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+  }
+
+  .load-more:hover:not(:disabled) {
+    border-color: var(--primary);
+    color: var(--primary);
+  }
+
+  .load-more:disabled { opacity: 0.6; cursor: default; }
 
   .state-msg {
     color: var(--text-dim);

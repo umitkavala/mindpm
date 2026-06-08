@@ -39,6 +39,10 @@ export function getDb(): Database.Database {
   db.pragma('synchronous = NORMAL');
   db.pragma('wal_autocheckpoint = 100');
   db.pragma('foreign_keys = ON');
+  // Wait (instead of throwing SQLITE_BUSY) when another connection holds the
+  // write lock — e.g. a WAL checkpoint overlapping an MCP write. Keeps
+  // log_decision/create_task resilient under concurrent UI reads.
+  db.pragma('busy_timeout = 5000');
 
   try {
     process.stderr.write('[mindpm] Running createSchema...\n');

@@ -192,4 +192,40 @@ describe('search', () => {
     const result = await callTool('search', { project: 'nope', query: 'x' });
     expect(result.isError).toBe(true);
   });
+
+  it('uses the FTS engine and matches by prefix', async () => {
+    const db = getTestDb();
+    seedProject(db, { id: 'p1', name: 'P' });
+    seedTask(db, 'p1', { id: 't1', title: 'Authentication rewrite' });
+
+    const result = await callTool('search', { project: 'P', query: 'auth' });
+    const parsed = parseToolResult(result);
+    expect(parsed.engine).toBe('fts');
+    expect(parsed.results.tasks).toHaveLength(1);
+    expect(parsed.counts.tasks).toBe(1);
+  });
+
+  it('reflects updates via FTS sync triggers', async () => {
+    const db = getTestDb();
+    seedProject(db, { id: 'p1', name: 'P' });
+    seedTask(db, 'p1', { id: 't1', title: 'Original title' });
+
+    expect(parseToolResult(await callTool('search', { project: 'P', query: 'renamed' })).total).toBe(0);
+    db.prepare('UPDATE tasks SET title = ? WHERE id = ?').run('Renamed widget', 't1');
+    expect(parseToolResult(await callTool('search', { project: 'P', query: 'renamed' })).results.tasks).toHaveLength(1);
+  });
+
+  it('respects the per-category limit and reports truncation', async () => {
+    const db = getTestDb();
+    seedProject(db, { id: 'p1', name: 'P' });
+    for (let i = 0; i < 5; i++) {
+      seedTask(db, 'p1', { id: `t${i}`, title: `Widget number ${i}` });
+    }
+
+    const result = await callTool('search', { project: 'P', query: 'widget', limit: 2 });
+    const parsed = parseToolResult(result);
+    expect(parsed.results.tasks).toHaveLength(2);
+    expect(parsed.counts.tasks).toBe(5);
+    expect(parsed.truncated).toBe(true);
+  });
 });

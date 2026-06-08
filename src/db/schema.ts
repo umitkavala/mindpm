@@ -130,6 +130,75 @@ export function createSchema(db: Database.Database): void {
       UPDATE context SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
     END;
   `);
+
+  // Rebuild so the index is consistent with any rows that already exist before
+  // the sync triggers start firing. Without this, the first UPDATE/DELETE on a
+  // pre-existing (unindexed) row issues an FTS 'delete' that corrupts the index.
+  setupFts(db, true);
+}
+
+// Create FTS5 virtual tables (external-content, indexing the base tables) plus
+// the triggers that keep them in sync. Idempotent. Pass rebuild=true to
+// backfill the index from existing rows (used by runMigrations for DBs whose
+// data predates FTS, and after the tasks-table rebuild migration). If FTS5 is
+// unavailable in this SQLite build, search silently falls back to LIKE.
+export function setupFts(db: Database.Database, rebuild = false): void {
+  try {
+    db.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS tasks_fts USING fts5(
+        title, description, content='tasks', content_rowid='rowid'
+      );
+      CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
+        content, content='notes', content_rowid='rowid'
+      );
+      CREATE VIRTUAL TABLE IF NOT EXISTS decisions_fts USING fts5(
+        title, decision, reasoning, content='decisions', content_rowid='rowid'
+      );
+
+      CREATE TRIGGER IF NOT EXISTS trg_tasks_fts_ai AFTER INSERT ON tasks BEGIN
+        INSERT INTO tasks_fts(rowid, title, description) VALUES (new.rowid, new.title, new.description);
+      END;
+      CREATE TRIGGER IF NOT EXISTS trg_tasks_fts_ad AFTER DELETE ON tasks BEGIN
+        INSERT INTO tasks_fts(tasks_fts, rowid, title, description) VALUES('delete', old.rowid, old.title, old.description);
+      END;
+      CREATE TRIGGER IF NOT EXISTS trg_tasks_fts_au AFTER UPDATE ON tasks BEGIN
+        INSERT INTO tasks_fts(tasks_fts, rowid, title, description) VALUES('delete', old.rowid, old.title, old.description);
+        INSERT INTO tasks_fts(rowid, title, description) VALUES (new.rowid, new.title, new.description);
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_notes_fts_ai AFTER INSERT ON notes BEGIN
+        INSERT INTO notes_fts(rowid, content) VALUES (new.rowid, new.content);
+      END;
+      CREATE TRIGGER IF NOT EXISTS trg_notes_fts_ad AFTER DELETE ON notes BEGIN
+        INSERT INTO notes_fts(notes_fts, rowid, content) VALUES('delete', old.rowid, old.content);
+      END;
+      CREATE TRIGGER IF NOT EXISTS trg_notes_fts_au AFTER UPDATE ON notes BEGIN
+        INSERT INTO notes_fts(notes_fts, rowid, content) VALUES('delete', old.rowid, old.content);
+        INSERT INTO notes_fts(rowid, content) VALUES (new.rowid, new.content);
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_decisions_fts_ai AFTER INSERT ON decisions BEGIN
+        INSERT INTO decisions_fts(rowid, title, decision, reasoning) VALUES (new.rowid, new.title, new.decision, new.reasoning);
+      END;
+      CREATE TRIGGER IF NOT EXISTS trg_decisions_fts_ad AFTER DELETE ON decisions BEGIN
+        INSERT INTO decisions_fts(decisions_fts, rowid, title, decision, reasoning) VALUES('delete', old.rowid, old.title, old.decision, old.reasoning);
+      END;
+      CREATE TRIGGER IF NOT EXISTS trg_decisions_fts_au AFTER UPDATE ON decisions BEGIN
+        INSERT INTO decisions_fts(decisions_fts, rowid, title, decision, reasoning) VALUES('delete', old.rowid, old.title, old.decision, old.reasoning);
+        INSERT INTO decisions_fts(rowid, title, decision, reasoning) VALUES (new.rowid, new.title, new.decision, new.reasoning);
+      END;
+    `);
+
+    if (rebuild) {
+      db.exec(`
+        INSERT INTO tasks_fts(tasks_fts) VALUES('rebuild');
+        INSERT INTO notes_fts(notes_fts) VALUES('rebuild');
+        INSERT INTO decisions_fts(decisions_fts) VALUES('rebuild');
+      `);
+    }
+  } catch (err) {
+    process.stderr.write(`[mindpm] FTS5 setup skipped (search will use LIKE fallback): ${err}\n`);
+  }
 }
 
 // Idempotent migrations for columns added after initial release
@@ -236,4 +305,8 @@ export function runMigrations(db: Database.Database): void {
     });
     insertMany();
   }
+
+  // Ensure FTS tables/triggers exist and are populated. Runs last so it survives
+  // the tasks-table rebuild above and backfills rows that predate FTS.
+  setupFts(db, true);
 }

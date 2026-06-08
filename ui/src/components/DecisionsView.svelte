@@ -9,26 +9,46 @@
 
   let { projectId, onOpenTask }: Props = $props();
 
+  const PAGE = 100;
+
   let decisions: Decision[] = $state([]);
   let tasks: Task[] = $state([]);
   let loading = $state(true);
   let error: string | null = $state(null);
+  let hasMore = $state(false);
+  let loadingMore = $state(false);
 
   $effect(() => {
     loading = true;
     error = null;
     Promise.all([
-      api.getDecisions(projectId),
-      api.getTasks(projectId),
+      api.getDecisions(projectId, PAGE, 0),
+      api.getTasks(projectId, true),
     ]).then(([d, t]) => {
       decisions = d;
       tasks = t;
+      hasMore = d.length === PAGE;
     }).catch((e) => {
       error = e.message;
     }).finally(() => {
       loading = false;
     });
   });
+
+  async function loadMore() {
+    if (loadingMore) return;
+    loadingMore = true;
+    try {
+      const page = await api.getDecisions(projectId, PAGE, decisions.length);
+      const existing = new Set(decisions.map((d) => d.id));
+      decisions = [...decisions, ...page.filter((d) => !existing.has(d.id))];
+      hasMore = page.length === PAGE;
+    } catch (e: any) {
+      error = e.message;
+    } finally {
+      loadingMore = false;
+    }
+  }
 
   const taskMap = $derived(new Map(tasks.map((t) => [t.id, t])));
 
@@ -93,6 +113,11 @@
           {/if}
         </div>
       {/each}
+      {#if hasMore}
+        <button class="load-more" disabled={loadingMore} onclick={loadMore}>
+          {loadingMore ? 'loading…' : 'load more'}
+        </button>
+      {/if}
     </div>
   {/if}
 </div>
@@ -122,6 +147,28 @@
     gap: 8px;
     max-width: 760px;
   }
+
+  .load-more {
+    align-self: flex-start;
+    margin-top: 4px;
+    padding: 6px 16px;
+    background: none;
+    border: 1px dashed var(--border-bright);
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+  }
+
+  .load-more:hover:not(:disabled) {
+    border-color: var(--primary);
+    color: var(--primary);
+  }
+
+  .load-more:disabled { opacity: 0.6; cursor: default; }
 
   .card {
     background: var(--surface);

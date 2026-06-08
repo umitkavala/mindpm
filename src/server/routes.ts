@@ -16,6 +16,14 @@ interface Route {
   handler: RouteHandler;
 }
 
+// Parse a query-param integer, clamping to [min, max]; returns fallback when absent/invalid.
+function clampInt(raw: string | null, fallback: number, min: number, max: number): number {
+  if (raw === null) return fallback;
+  const n = parseInt(raw, 10);
+  if (Number.isNaN(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
 // --- Project handlers ---
 
 const listProjects: RouteHandler = async (_req, res) => {
@@ -104,14 +112,34 @@ const listTasks: RouteHandler = async (req, res, params) => {
   const db = getDb();
   const url = new URL(req.url || '/', 'http://localhost');
   const includeDone = url.searchParams.get('include_done') === 'true';
+  const status = url.searchParams.get('status');
+  const hasLimit = url.searchParams.has('limit');
+  const limit = clampInt(url.searchParams.get('limit'), 100, 1, 500);
+  const offset = clampInt(url.searchParams.get('offset'), 0, 0, Number.MAX_SAFE_INTEGER);
 
-  let sql = 'SELECT t.*, p.slug || \'-\' || t.seq AS short_id FROM tasks t JOIN projects p ON t.project_id = p.id WHERE t.project_id = ?';
-  if (!includeDone) {
-    sql += " AND t.status NOT IN ('done', 'cancelled')";
+  const conditions = ['t.project_id = ?'];
+  const sqlParams: unknown[] = [params.pid];
+  if (status) {
+    conditions.push('t.status = ?');
+    sqlParams.push(status);
+  } else if (!includeDone) {
+    conditions.push("t.status NOT IN ('done', 'cancelled')");
   }
-  sql += " ORDER BY CASE t.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 END, t.created_at DESC";
+  const where = conditions.join(' AND ');
 
-  const rows = db.prepare(sql).all(params.pid);
+  // Terminal columns (done/cancelled) are an archive — order by recency.
+  const order = status === 'done' || status === 'cancelled'
+    ? 'ORDER BY COALESCE(t.completed_at, t.updated_at) DESC'
+    : "ORDER BY CASE t.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 END, t.created_at DESC";
+
+  let sql = `SELECT t.*, p.slug || '-' || t.seq AS short_id FROM tasks t JOIN projects p ON t.project_id = p.id WHERE ${where} ${order}`;
+  // Paginate only when the caller asks (limit/offset) or when terminal tasks are
+  // requested without an explicit limit — never dump the full done archive.
+  if (hasLimit || status === 'done' || status === 'cancelled') {
+    sql += ` LIMIT ${limit} OFFSET ${offset}`;
+  }
+
+  const rows = db.prepare(sql).all(...sqlParams);
   sendJson(res, 200, rows);
 };
 
@@ -312,17 +340,27 @@ const createSession: RouteHandler = async (req, res, params) => {
 
 // --- Note handlers ---
 
-const listNotes: RouteHandler = async (_req, res, params) => {
+const listNotes: RouteHandler = async (req, res, params) => {
   const db = getDb();
-  const rows = db.prepare('SELECT * FROM notes WHERE project_id = ? ORDER BY created_at DESC').all(params.pid);
+  const url = new URL(req.url || '/', 'http://localhost');
+  const limit = clampInt(url.searchParams.get('limit'), 100, 1, 500);
+  const offset = clampInt(url.searchParams.get('offset'), 0, 0, Number.MAX_SAFE_INTEGER);
+  const rows = db
+    .prepare('SELECT * FROM notes WHERE project_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?')
+    .all(params.pid, limit, offset);
   sendJson(res, 200, rows);
 };
 
 // --- Decision handlers ---
 
-const listDecisions: RouteHandler = async (_req, res, params) => {
+const listDecisions: RouteHandler = async (req, res, params) => {
   const db = getDb();
-  const rows = db.prepare('SELECT * FROM decisions WHERE project_id = ? ORDER BY created_at DESC').all(params.pid);
+  const url = new URL(req.url || '/', 'http://localhost');
+  const limit = clampInt(url.searchParams.get('limit'), 100, 1, 500);
+  const offset = clampInt(url.searchParams.get('offset'), 0, 0, Number.MAX_SAFE_INTEGER);
+  const rows = db
+    .prepare('SELECT * FROM decisions WHERE project_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?')
+    .all(params.pid, limit, offset);
   sendJson(res, 200, rows);
 };
 

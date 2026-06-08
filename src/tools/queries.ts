@@ -2,6 +2,26 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod/v4';
 import { getDb, resolveProjectOrDefault, resolveProjectError } from '../db/queries.js';
 import { maybeAutoSession } from './auto-session.js';
+import type Database from 'better-sqlite3';
+
+// True when the FTS5 virtual tables exist (created by setupFts). When false,
+// search falls back to LIKE scans.
+function ftsReady(db: Database.Database): boolean {
+  try {
+    return !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='tasks_fts'").get();
+  } catch {
+    return false;
+  }
+}
+
+// Turn a free-text query into an FTS5 MATCH expression: each alphanumeric token
+// becomes a prefix term, combined with implicit AND. Returns null when the query
+// has no usable tokens (caller then falls back to LIKE).
+function buildFtsMatch(query: string): string | null {
+  const tokens = query.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  if (tokens.length === 0) return null;
+  return tokens.map((t) => `"${t}"*`).join(' ');
+}
 
 export function registerQueryTools(server: McpServer): void {
   server.registerTool(
@@ -165,13 +185,14 @@ export function registerQueryTools(server: McpServer): void {
     'search',
     {
       title: 'Search Everything',
-      description: 'Full-text search across tasks, notes, and decisions for a project.',
+      description: 'Full-text search (FTS5, ranked by relevance) across tasks, notes, and decisions for a project.',
       inputSchema: {
         project: z.string().optional().describe('Project name or ID'),
         query: z.string().describe('Search query'),
+        limit: z.number().int().min(1).max(100).optional().describe('Max results per category (default: 20)'),
       },
     },
-    async ({ project, query }) => {
+    async ({ project, query, limit = 20 }) => {
       const resolved = resolveProjectOrDefault(project);
       if (!resolved) {
         return { content: [{ type: 'text' as const, text: resolveProjectError(project) }], isError: true };
@@ -179,26 +200,61 @@ export function registerQueryTools(server: McpServer): void {
 
       const sessionPreamble = maybeAutoSession(resolved.id);
       const db = getDb();
-      const pattern = `%${query}%`;
+      const match = buildFtsMatch(query);
 
-      const tasks = db
-        .prepare("SELECT id, title, description, status, priority, 'task' as type FROM tasks WHERE project_id = ? AND (title LIKE ? OR description LIKE ?)")
-        .all(resolved.id, pattern, pattern);
+      // Each result set is bounded (limit per category) and we count true totals
+      // separately, so a broad query never returns an unbounded payload.
+      let tasks: unknown[];
+      let notes: unknown[];
+      let decisions: unknown[];
+      let taskTotal: number;
+      let noteTotal: number;
+      let decisionTotal: number;
+      let engine: 'fts' | 'like';
 
-      const notes = db
-        .prepare("SELECT id, content, category, 'note' as type FROM notes WHERE project_id = ? AND content LIKE ?")
-        .all(resolved.id, pattern);
+      if (match && ftsReady(db)) {
+        engine = 'fts';
+        // Ranked by bm25 (lower = more relevant). Join FTS rowid back to the base row.
+        tasks = db
+          .prepare("SELECT t.id, t.title, t.description, t.status, t.priority, 'task' as type FROM tasks_fts JOIN tasks t ON t.rowid = tasks_fts.rowid WHERE tasks_fts MATCH ? AND t.project_id = ? ORDER BY bm25(tasks_fts) LIMIT ?")
+          .all(match, resolved.id, limit);
+        notes = db
+          .prepare("SELECT n.id, n.content, n.category, 'note' as type FROM notes_fts JOIN notes n ON n.rowid = notes_fts.rowid WHERE notes_fts MATCH ? AND n.project_id = ? ORDER BY bm25(notes_fts) LIMIT ?")
+          .all(match, resolved.id, limit);
+        decisions = db
+          .prepare("SELECT d.id, d.title, d.decision, d.reasoning, 'decision' as type FROM decisions_fts JOIN decisions d ON d.rowid = decisions_fts.rowid WHERE decisions_fts MATCH ? AND d.project_id = ? ORDER BY bm25(decisions_fts) LIMIT ?")
+          .all(match, resolved.id, limit);
+        taskTotal = (db.prepare('SELECT COUNT(*) as n FROM tasks_fts JOIN tasks t ON t.rowid = tasks_fts.rowid WHERE tasks_fts MATCH ? AND t.project_id = ?').get(match, resolved.id) as { n: number }).n;
+        noteTotal = (db.prepare('SELECT COUNT(*) as n FROM notes_fts JOIN notes n ON n.rowid = notes_fts.rowid WHERE notes_fts MATCH ? AND n.project_id = ?').get(match, resolved.id) as { n: number }).n;
+        decisionTotal = (db.prepare('SELECT COUNT(*) as n FROM decisions_fts JOIN decisions d ON d.rowid = decisions_fts.rowid WHERE decisions_fts MATCH ? AND d.project_id = ?').get(match, resolved.id) as { n: number }).n;
+      } else {
+        engine = 'like';
+        const pattern = `%${query}%`;
+        taskTotal = (db.prepare('SELECT COUNT(*) as n FROM tasks WHERE project_id = ? AND (title LIKE ? OR description LIKE ?)').get(resolved.id, pattern, pattern) as { n: number }).n;
+        noteTotal = (db.prepare('SELECT COUNT(*) as n FROM notes WHERE project_id = ? AND content LIKE ?').get(resolved.id, pattern) as { n: number }).n;
+        decisionTotal = (db.prepare('SELECT COUNT(*) as n FROM decisions WHERE project_id = ? AND (title LIKE ? OR decision LIKE ? OR reasoning LIKE ?)').get(resolved.id, pattern, pattern, pattern) as { n: number }).n;
+        tasks = db
+          .prepare("SELECT id, title, description, status, priority, 'task' as type FROM tasks WHERE project_id = ? AND (title LIKE ? OR description LIKE ?) ORDER BY updated_at DESC LIMIT ?")
+          .all(resolved.id, pattern, pattern, limit);
+        notes = db
+          .prepare("SELECT id, content, category, 'note' as type FROM notes WHERE project_id = ? AND content LIKE ? ORDER BY created_at DESC LIMIT ?")
+          .all(resolved.id, pattern, limit);
+        decisions = db
+          .prepare("SELECT id, title, decision, reasoning, 'decision' as type FROM decisions WHERE project_id = ? AND (title LIKE ? OR decision LIKE ? OR reasoning LIKE ?) ORDER BY created_at DESC LIMIT ?")
+          .all(resolved.id, pattern, pattern, pattern, limit);
+      }
 
-      const decisions = db
-        .prepare("SELECT id, title, decision, reasoning, 'decision' as type FROM decisions WHERE project_id = ? AND (title LIKE ? OR decision LIKE ? OR reasoning LIKE ?)")
-        .all(resolved.id, pattern, pattern, pattern);
-
+      const truncated = taskTotal > tasks.length || noteTotal > notes.length || decisionTotal > decisions.length;
       const resultText = JSON.stringify(
         {
           project: resolved.name,
           query,
+          engine,
+          limit,
+          truncated,
+          counts: { tasks: taskTotal, notes: noteTotal, decisions: decisionTotal },
           results: { tasks, notes, decisions },
-          total: tasks.length + notes.length + decisions.length,
+          total: taskTotal + noteTotal + decisionTotal,
         },
         null,
         2,

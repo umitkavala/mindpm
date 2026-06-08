@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
-import { createSchema } from './schema.js';
+import { createSchema, runMigrations } from './schema.js';
 
 let db: Database.Database;
 
@@ -17,7 +17,7 @@ afterEach(() => {
 describe('createSchema', () => {
   it('creates all 7 tables', () => {
     const tables = db
-      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '%_fts%'")
       .all()
       .map((r: any) => r.name)
       .sort();
@@ -130,5 +130,51 @@ describe('createSchema', () => {
     db.prepare("UPDATE context SET value = 'new' WHERE id = 'c1'").run();
     const row = db.prepare("SELECT updated_at FROM context WHERE id = 'c1'").get() as any;
     expect(row.updated_at).toBeDefined();
+  });
+});
+
+describe('runMigrations FTS upgrade path', () => {
+  it('rebuilds the tasks table and keeps pre-existing rows searchable via FTS', () => {
+    // Simulate a pre-FTS, pre-in_review database with existing data.
+    const old = new Database(':memory:');
+    old.pragma('foreign_keys = ON');
+    old.exec(`
+      CREATE TABLE projects (
+        id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, description TEXT,
+        status TEXT DEFAULT 'active', repo_path TEXT, tech_stack TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE tasks (
+        id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id),
+        title TEXT NOT NULL, description TEXT,
+        status TEXT DEFAULT 'todo' CHECK(status IN ('todo','in_progress','blocked','done','cancelled')),
+        priority TEXT DEFAULT 'medium', tags TEXT, parent_task_id TEXT, blocked_by TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, completed_at DATETIME
+      );
+      INSERT INTO projects (id, name) VALUES ('p1', 'P');
+      INSERT INTO tasks (id, project_id, title) VALUES ('t1', 'p1', 'Legacy authentication task');
+    `);
+
+    createSchema(old);   // adds remaining tables + FTS (triggers attach to the OLD tasks table)
+    runMigrations(old);  // adds seq, rebuilds tasks for in_review (drops triggers), then rebuilds FTS
+
+    // The tasks table was rebuilt to allow the in_review status.
+    const tasksSql = (old.prepare("SELECT sql FROM sqlite_master WHERE name='tasks'").get() as any).sql;
+    expect(tasksSql).toContain('in_review');
+
+    // The row that existed before FTS — and survived the table rebuild — is indexed.
+    const hits = old
+      .prepare('SELECT t.id FROM tasks_fts JOIN tasks t ON t.rowid = tasks_fts.rowid WHERE tasks_fts MATCH ?')
+      .all('"legacy"*');
+    expect(hits).toEqual([{ id: 't1' }]);
+
+    // Triggers were restored after the rebuild — new writes stay in sync.
+    old.prepare("UPDATE tasks SET title = 'Renamed task' WHERE id = 't1'").run();
+    const afterRename = old
+      .prepare('SELECT COUNT(*) AS n FROM tasks_fts JOIN tasks t ON t.rowid = tasks_fts.rowid WHERE tasks_fts MATCH ?')
+      .get('"renamed"*') as { n: number };
+    expect(afterRename.n).toBe(1);
+
+    old.close();
   });
 });
