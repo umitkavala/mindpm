@@ -293,6 +293,18 @@ export function runMigrations(db: Database.Database): void {
     `);
   }
 
+  // Add session-brief columns to sessions if missing
+  const sessionCols = (db.pragma('table_info(sessions)') as { name: string }[]).map(c => c.name);
+  if (!sessionCols.includes('ended_at')) {
+    db.exec('ALTER TABLE sessions ADD COLUMN ended_at TEXT');
+  }
+  if (!sessionCols.includes('end_git_sha')) {
+    db.exec('ALTER TABLE sessions ADD COLUMN end_git_sha TEXT');
+  }
+  if (!sessionCols.includes('end_git_branch')) {
+    db.exec('ALTER TABLE sessions ADD COLUMN end_git_branch TEXT');
+  }
+
   // Backfill task_history created events for existing tasks (run once)
   const historyCount = (db.prepare('SELECT COUNT(*) as n FROM task_history').get() as { n: number }).n;
   if (historyCount === 0) {
