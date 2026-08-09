@@ -91,8 +91,16 @@ export function currentBranch(repoPath: string): Result<{ branch: string | null 
   return { ok: false, reason: raw.stderr || 'git symbolic-ref failed' };
 }
 
+// Checks reachability from HEAD, not just object existence: after a
+// force-push, rebase, or amend, the old commit object often still lives in
+// the object database (until gc runs), so a plain `cat-file -e` would wrongly
+// report it as usable and produce a garbage `sha..HEAD` range. `merge-base
+// --is-ancestor` answers the question we actually need — "is this sha still
+// part of HEAD's history" — and exits non-zero for both "not an ancestor"
+// and "not a valid commit at all", both of which mean the anchor should fall
+// back to a timestamp.
 export function shaExists(repoPath: string, sha: string): Result<{ exists: boolean }> {
-  const raw = runGit(repoPath, ['cat-file', '-e', `${sha}^{commit}`]);
+  const raw = runGit(repoPath, ['merge-base', '--is-ancestor', sha, 'HEAD']);
   if (raw.reason) return { ok: false, reason: raw.reason };
   return { ok: true, exists: raw.status === 0 };
 }

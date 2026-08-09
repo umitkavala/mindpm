@@ -82,16 +82,36 @@ describe('currentBranch', () => {
 });
 
 describe('shaExists', () => {
-  it('is true for a reachable sha', () => {
+  it('is true for HEAD itself', () => {
     initRepo(repo);
     const sha = commit(repo, 'a.txt', 'hello', 'Initial commit');
     expect(shaExists(repo, sha)).toEqual({ ok: true, exists: true });
   });
 
-  it('is false for an unreachable/force-pushed-away sha', () => {
+  it('is true for an ancestor of HEAD, not just HEAD itself', () => {
+    initRepo(repo);
+    const first = commit(repo, 'a.txt', 'v1', 'First');
+    commit(repo, 'b.txt', 'v1', 'Second');
+    expect(shaExists(repo, first)).toEqual({ ok: true, exists: true });
+  });
+
+  it('is false for a sha that does not exist at all', () => {
     initRepo(repo);
     commit(repo, 'a.txt', 'hello', 'Initial commit');
     expect(shaExists(repo, '0000000000000000000000000000000000dead')).toEqual({ ok: true, exists: false });
+  });
+
+  it('is false for a sha rewritten away by amend/force-push, even though the object still exists', () => {
+    // The old commit object typically survives in the odb until gc runs, so
+    // this specifically guards against checking object existence instead of
+    // ancestry (see the comment on shaExists).
+    initRepo(repo);
+    const original = commit(repo, 'a.txt', 'v1', 'First');
+    writeFileSync(join(repo, 'a.txt'), 'v2');
+    git(repo, ['add', 'a.txt']);
+    git(repo, ['commit', '-q', '--amend', '-m', 'First (amended)']);
+
+    expect(shaExists(repo, original)).toEqual({ ok: true, exists: false });
   });
 });
 
