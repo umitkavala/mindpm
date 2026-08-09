@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod/v4';
-import { getDb, generateId, resolveProjectId } from '../db/queries.js';
+import { getDb, generateId, resolveProjectId, resolveProjectOrDefault, resolveProjectError, validateRepoPath } from '../db/queries.js';
 import { generateSlug } from '../utils/ids.js';
 import { maybeAutoSession } from './auto-session.js';
 
@@ -19,6 +19,13 @@ export function registerProjectTools(server: McpServer): void {
       },
     },
     async ({ name, description, tech_stack, repo_path }) => {
+      if (repo_path) {
+        const validation = validateRepoPath(repo_path);
+        if (!validation.ok) {
+          return { content: [{ type: 'text' as const, text: validation.reason }], isError: true };
+        }
+      }
+
       const db = getDb();
       const id = generateId();
       // Generate unique slug
@@ -125,6 +132,40 @@ export function registerProjectTools(server: McpServer): void {
       const resultText = JSON.stringify(result, null, 2);
       return {
         content: [{ type: 'text' as const, text: sessionPreamble ? `${sessionPreamble}\n\n---\n\n${resultText}` : resultText }],
+      };
+    },
+  );
+
+  server.registerTool(
+    'set_project_repo_path',
+    {
+      title: 'Set Project Repo Path',
+      description:
+        'Set or update the local git repository path for a project. Required for the session brief to include git activity (commits, branch, working-tree state) since the last session.',
+      inputSchema: {
+        project: z.string().describe('Project name or ID'),
+        repo_path: z.string().describe('Absolute path to the project repository (must contain a .git directory)'),
+      },
+    },
+    async ({ project, repo_path }) => {
+      const resolved = resolveProjectOrDefault(project);
+      if (!resolved) {
+        return { content: [{ type: 'text' as const, text: resolveProjectError(project) }], isError: true };
+      }
+
+      const validation = validateRepoPath(repo_path);
+      if (!validation.ok) {
+        return { content: [{ type: 'text' as const, text: validation.reason }], isError: true };
+      }
+
+      const db = getDb();
+      db.prepare('UPDATE projects SET repo_path = ? WHERE id = ?').run(repo_path, resolved.id);
+
+      return {
+        content: [{
+          type: 'text' as const,
+          text: JSON.stringify({ project_id: resolved.id, repo_path, message: `Repo path set for "${resolved.name}"` }),
+        }],
       };
     },
   );

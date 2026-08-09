@@ -1,3 +1,5 @@
+import { existsSync, statSync } from 'fs';
+import { join } from 'path';
 import { getDb } from './connection.js';
 import { generateId } from '../utils/ids.js';
 import { getSessionStartedProjects } from '../utils/session-state.js';
@@ -103,6 +105,41 @@ export function recordTaskHistory(
   db.prepare(
     'INSERT INTO task_history (id, task_id, event, old_value, new_value) VALUES (?, ?, ?, ?, ?)'
   ).run(generateId(), taskId, event, oldValue, newValue);
+}
+
+// Validate a candidate repo_path: must exist, be a directory, and contain .git.
+export function validateRepoPath(repoPath: string): { ok: true } | { ok: false; reason: string } {
+  if (!existsSync(repoPath)) {
+    return { ok: false, reason: `Path does not exist: ${repoPath}` };
+  }
+  let stat;
+  try {
+    stat = statSync(repoPath);
+  } catch {
+    return { ok: false, reason: `Path is not accessible: ${repoPath}` };
+  }
+  if (!stat.isDirectory()) {
+    return { ok: false, reason: `Path is not a directory: ${repoPath}` };
+  }
+  if (!existsSync(join(repoPath, '.git'))) {
+    return { ok: false, reason: `Path is not a git repository (no .git found): ${repoPath}` };
+  }
+  return { ok: true };
+}
+
+// Resolve a project's repo path: the typed column first, then the legacy
+// context key 'repo_path' for projects that predate the column, else null.
+export function resolveRepoPath(projectId: string): string | null {
+  const db = getDb();
+  const row = db.prepare('SELECT repo_path FROM projects WHERE id = ?').get(projectId) as
+    | { repo_path: string | null }
+    | undefined;
+  if (row?.repo_path) return row.repo_path;
+
+  const ctx = db.prepare("SELECT value FROM context WHERE project_id = ? AND key = 'repo_path'").get(projectId) as
+    | { value: string }
+    | undefined;
+  return ctx?.value ?? null;
 }
 
 export { generateId, getDb };
