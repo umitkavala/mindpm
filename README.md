@@ -43,6 +43,74 @@ Kanban board: http://localhost:3131?project=<project-id>
 
 The port is configurable via the `MINDPM_PORT` environment variable.
 
+## Session Brief
+
+`get_project_status` tells you what you were doing. The **session brief** tells you what *changed while you were away* — commits landed, the branch moved, the working tree got dirty, tasks changed status, blockers appeared, a decision was logged.
+
+Every `start_session` call embeds a brief automatically (pass `brief: false` to skip it), and you can also fetch one without opening a session via `get_session_brief`. It's fully deterministic — no LLM calls happen inside mindpm — and it never touches the network: everything comes from local git subprocess calls and the local SQLite database.
+
+To get git activity in the brief, tell mindpm where your repo lives:
+
+```
+set_project_repo_path(project: "my-app", repo_path: "/Users/you/code/my-app")
+```
+
+(or pass `repo_path` directly to `create_project`). Without a configured repo, the brief still reports the task/blocker/decision delta — it just skips the git section.
+
+Example output:
+
+```jsonc
+{
+  "project": "my-app",
+  "degraded": false,
+  "degraded_reasons": [],
+  "gap": {
+    "last_session_ended_at": "2026-08-08T22:14:03.000Z",
+    "hours_elapsed": 11.3,
+    "label": "overnight"
+  },
+  "handoff": {
+    "last_session_summary": "Finished the auth refactor",
+    "next_steps": "Wire up rate limiting, then tackle the webhook retry bug"
+  },
+  "git": {
+    "available": true,
+    "anchor": "sha",
+    "branch_then": "feat/phase-3",
+    "branch_now": "feat/phase-3",
+    "branch_changed": false,
+    "commits": [
+      { "sha": "a1b2c3d", "author": "umit", "date": "2026-08-09T09:02:11+00:00", "subject": "Add rate limit middleware" }
+    ],
+    "commit_count": 4,
+    "commits_truncated": false,
+    "files_changed": [
+      { "path": "src/middleware/rate-limit.ts", "added": 82, "deleted": 11 }
+    ],
+    "files_changed_truncated": false,
+    "working_tree_dirty": true,
+    "untracked_count": 2,
+    "stash_count": 0
+  },
+  "tasks": {
+    "changed": [
+      { "id": "a1b2c3d4", "title": "Add rate limiting", "from_status": "in_progress", "to_status": "done", "at": "2026-08-09T09:05:00.000Z" }
+    ],
+    "in_progress_now": [{ "id": "e5f6a7b8", "title": "Webhook retry bug" }],
+    "next_suggested": [{ "id": "c9d0e1f2", "title": "Write API docs", "priority": "high" }]
+  },
+  "blockers": [],
+  "decisions_since": [
+    { "id": "9f8e7d6c", "title": "Use token bucket for rate limiting", "at": "2026-08-09T09:00:00.000Z" }
+  ],
+  "notes_since_count": 3
+}
+```
+
+`gap.label` is `same-day` (<6h), `overnight` (6-20h), `multi-day` (20h-14d), or `stale` (>14d) — a stale gap adds a `gap.hint` telling the agent to re-verify context rather than trust `next_steps` at face value.
+
+The git delta is anchored on the exact commit sha recorded when the prior session ended (via `end_session`), not on a timestamp — sha-based anchoring survives rebases and amends that would break a clock-based diff. If that sha becomes unreachable (force-push, rebase, or the repo was pruned), the brief transparently falls back to a timestamp anchor and reports it in `degraded_reasons`. A broken or missing repo never fails the brief — it just comes back with `git.available: false` and `degraded: true`, while the task/blocker/decision delta is unaffected.
+
 ## Setup
 
 ### Install
@@ -150,6 +218,7 @@ That's it. The LLM now has access to mindpm tools. Just start talking about your
 | `create_project` | Create a new project |
 | `list_projects` | List all projects |
 | `get_project_status` | Full project overview |
+| `set_project_repo_path` | Set/update the project's local git repo path (enables the session brief's git delta) |
 
 ### Tasks
 | Tool | Description |
@@ -177,8 +246,9 @@ That's it. The LLM now has access to mindpm tools. Just start talking about your
 ### Sessions
 | Tool | Description |
 |------|-------------|
-| `start_session` | Get full project context + last session's next steps |
+| `start_session` | Get full project context + last session's next steps + session brief |
 | `end_session` | Record summary + what to do next time |
+| `get_session_brief` | Read-only: what changed since the last session ended, without opening a session |
 
 ### Query
 | Tool | Description |

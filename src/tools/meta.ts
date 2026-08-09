@@ -7,7 +7,7 @@ You have access to mindpm, a persistent project memory tool. Use it proactively 
 ## Session lifecycle
 
 **At the start of every conversation:**
-Call \`start_session\` with the project name. It returns your project context: last session summary, active tasks, blockers, and recent decisions. Always show the kanban_url to the user as a clickable link.
+Call \`start_session\` with the project name. It returns your project context: last session summary, active tasks, blockers, and recent decisions — plus a \`brief\` field (the session brief). Read the brief first: it's the delta since you were last here — commits landed, branch moved, working tree state, tasks that changed status, new blockers, and decisions logged while you were away. If \`brief.gap.label\` is \`"stale"\` (last session ended over 14 days ago), don't trust \`next_steps\` at face value — re-verify with \`get_project_status\` before acting on it. You can also fetch the brief on its own via \`get_session_brief\` without opening a session. Always show the kanban_url to the user as a clickable link.
 
 If working across **multiple projects** in one conversation, call \`start_session\` once for each project. After that, all tools will require an explicit \`project\` argument — pass it on every call to avoid ambiguity.
 
