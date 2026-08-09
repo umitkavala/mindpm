@@ -3,6 +3,7 @@ import { z } from 'zod/v4';
 import { getDb, generateId, resolveProjectOrDefault, resolveProjectError, resolveRepoPath } from '../db/queries.js';
 import { buildSessionText, markSessionStarted } from './auto-session.js';
 import { resolveHead, currentBranch } from '../utils/git.js';
+import { buildSessionBrief } from './session-brief.js';
 
 // Best-effort snapshot of HEAD sha + branch for a project's repo. Never
 // throws — a missing/unconfigured/broken repo just yields null fields, since
@@ -28,9 +29,12 @@ export function registerSessionTools(server: McpServer): void {
         'Begin a work session for a project. Returns the full project overview including last session\'s next_steps, active tasks, blockers, and recent decisions. Call this at the start of every conversation. For multi-project conversations, call once per project — after that, pass `project` explicitly on every tool call. IMPORTANT: Always show the kanban_url to the user as a clickable link so they can open the Kanban board.',
       inputSchema: {
         project: z.string().optional().describe('Project name or ID'),
+        brief: z.boolean().optional().describe(
+          'Include the session brief: what changed since the last session ended (commits, branch/working-tree state, task status changes, new decisions and notes). Default: true.',
+        ),
       },
     },
-    async ({ project }) => {
+    async ({ project, brief }) => {
       const resolved = resolveProjectOrDefault(project);
       if (!resolved) {
         return { content: [{ type: 'text' as const, text: resolveProjectError(project) }], isError: true };
@@ -38,7 +42,7 @@ export function registerSessionTools(server: McpServer): void {
 
       markSessionStarted(resolved.id);
       return {
-        content: [{ type: 'text' as const, text: buildSessionText(resolved.id) }],
+        content: [{ type: 'text' as const, text: buildSessionText(resolved.id, brief ?? true) }],
       };
     },
   );
@@ -86,6 +90,29 @@ export function registerSessionTools(server: McpServer): void {
           type: 'text' as const,
           text: JSON.stringify({ session_id: id, message: `Session ended for ${resolved.name}. Summary saved.` }),
         }],
+      };
+    },
+  );
+
+  server.registerTool(
+    'get_session_brief',
+    {
+      title: 'Get Session Brief',
+      description:
+        'Read-only: what changed since the last session ended — commits, branch and working-tree state, task status changes, new blockers, decisions, and notes. Unlike start_session, this does not open a session or mark one as started.',
+      inputSchema: {
+        project: z.string().optional().describe('Project name or ID'),
+      },
+    },
+    async ({ project }) => {
+      const resolved = resolveProjectOrDefault(project);
+      if (!resolved) {
+        return { content: [{ type: 'text' as const, text: resolveProjectError(project) }], isError: true };
+      }
+
+      const brief = buildSessionBrief(resolved.id, resolved.name);
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(brief, null, 2) }],
       };
     },
   );

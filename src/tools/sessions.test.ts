@@ -8,6 +8,7 @@ import {
   createTestDb, closeTestDb, getTestDb, seedProject, seedTask,
   seedDecision, seedSession, seedNote, seedContext, parseToolResult, createToolCaller,
 } from '../test-helpers/setup.js';
+import { getSessionStartedProjects } from '../utils/session-state.js';
 
 vi.mock('../db/connection.js', () => ({
   getDb: () => getTestDb(),
@@ -82,6 +83,66 @@ describe('start_session', () => {
   it('returns error when project not found', async () => {
     const result = await callTool('start_session', { project: 'nope' });
     expect(result.isError).toBe(true);
+  });
+
+  it('embeds the brief as a separate field by default', async () => {
+    const db = getTestDb();
+    seedProject(db, { id: 'p1', name: 'P' });
+
+    const result = await callTool('start_session', { project: 'P' });
+    const parsed = parseToolResult(result);
+    expect(parsed.brief).toBeDefined();
+    expect(parsed.brief.project).toBe('P');
+    expect(parsed.brief.degraded).toBe(false);
+  });
+
+  it('omits the brief when brief: false is passed', async () => {
+    const db = getTestDb();
+    seedProject(db, { id: 'p1', name: 'P' });
+
+    const result = await callTool('start_session', { project: 'P', brief: false });
+    const parsed = parseToolResult(result);
+    expect(parsed.brief).toBeUndefined();
+  });
+});
+
+describe('get_session_brief', () => {
+  it('returns the brief without opening a session', async () => {
+    const db = getTestDb();
+    seedProject(db, { id: 'p1', name: 'P' });
+    db.prepare(
+      `INSERT INTO sessions (id, project_id, summary, next_steps, ended_at, created_at) VALUES ('s1', 'p1', 'Did X', 'Do Y', '2026-08-08T22:00:00.000Z', '2026-08-08T22:00:00.000Z')`,
+    ).run();
+
+    const result = await callTool('get_session_brief', { project: 'P' });
+    const parsed = parseToolResult(result);
+    expect(parsed.project).toBe('P');
+    expect(parsed.handoff).toEqual({ last_session_summary: 'Did X', next_steps: 'Do Y' });
+    expect(parsed.gap).not.toBeNull();
+  });
+
+  it('does not mark the project as session-started', async () => {
+    const db = getTestDb();
+    seedProject(db, { id: 'p1', name: 'P' });
+
+    await callTool('get_session_brief', { project: 'P' });
+    expect(getSessionStartedProjects()).toEqual([]);
+  });
+
+  it('returns error when project not found', async () => {
+    const result = await callTool('get_session_brief', { project: 'nope' });
+    expect(result.isError).toBe(true);
+  });
+
+  it('returns gap: null for a project with no prior sessions', async () => {
+    const db = getTestDb();
+    seedProject(db, { id: 'p1', name: 'P' });
+
+    const result = await callTool('get_session_brief', { project: 'P' });
+    const parsed = parseToolResult(result);
+    expect(parsed.gap).toBeNull();
+    expect(parsed.handoff).toBeNull();
+    expect(parsed.degraded).toBe(false);
   });
 });
 

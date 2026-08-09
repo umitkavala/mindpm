@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import { getDb, generateId } from '../db/queries.js';
 import { getHttpPort } from '../server/http.js';
 import { markSessionStarted, getSessionStartedProjects, resetAutoSession } from '../utils/session-state.js';
+import { buildSessionBrief } from './session-brief.js';
 
 export { markSessionStarted, getSessionStartedProjects, resetAutoSession };
 
@@ -34,9 +35,12 @@ function getActivitySince(db: Database.Database, projectId: string, cutoffTime: 
   ) as ActivityItem[];
 }
 
-export function buildSessionText(projectId: string): string {
+// `includeBrief` defaults to false because this function also backs the
+// auto-session preamble other tools prepend to their own responses
+// (maybeAutoSession) — only the explicit start_session tool opts in.
+export function buildSessionText(projectId: string, includeBrief: boolean = false): string {
   const db = getDb();
-  const projectRow = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId);
+  const projectRow = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId) as { name?: string } | undefined;
 
   let lastSession = db
     .prepare('SELECT * FROM sessions WHERE project_id = ? ORDER BY created_at DESC LIMIT 1')
@@ -116,6 +120,7 @@ export function buildSessionText(projectId: string): string {
     blocked_tasks: blockedTasks,
     recent_decisions: recentDecisions,
     context: contextItems,
+    ...(includeBrief ? { brief: buildSessionBrief(projectId, projectRow?.name ?? '') } : {}),
   };
 
   const kanbanLine = kanbanUrl
