@@ -4,8 +4,9 @@
 // project must never break start_session.
 
 import type Database from 'better-sqlite3';
-import type { GitAnchor } from '../utils/git.js';
-import { shaExists } from '../utils/git.js';
+import type { GitAnchor, CommitInfo, FileStat } from '../utils/git.js';
+import { shaExists, currentBranch, logSince, diffStatSince, isDirty, untrackedCount, stashCount } from '../utils/git.js';
+import { getDb, resolveRepoPath } from '../db/queries.js';
 
 export interface LastSessionRow {
   id: string;
@@ -149,4 +150,196 @@ export function getTaskAndDecisionDelta(db: Database.Database, projectId: string
     : 0;
 
   return { changed, in_progress_now, next_suggested, blockers, decisions_since, notes_since_count };
+}
+
+const COMMIT_CAP = 20;
+const FILE_CAP = 40;
+const STALE_DAYS = 14;
+const STALE_HINT = 'Last session ended over 14 days ago — next_steps may be stale. Re-read project context (get_project_status) rather than trusting the handoff at face value.';
+
+export type GapLabel = 'same-day' | 'overnight' | 'multi-day' | 'stale';
+
+export interface Gap {
+  last_session_ended_at: string;
+  hours_elapsed: number;
+  label: GapLabel;
+  hint?: string;
+}
+
+export function computeGap(endedAtIso: string, now: Date): Gap {
+  const endedAt = new Date(endedAtIso);
+  const hoursElapsed = (now.getTime() - endedAt.getTime()) / (1000 * 60 * 60);
+
+  let label: GapLabel;
+  if (hoursElapsed < 6) label = 'same-day';
+  else if (hoursElapsed < 20) label = 'overnight';
+  else if (hoursElapsed < STALE_DAYS * 24) label = 'multi-day';
+  else label = 'stale';
+
+  const gap: Gap = { last_session_ended_at: endedAtIso, hours_elapsed: Math.round(hoursElapsed * 10) / 10, label };
+  if (label === 'stale') gap.hint = STALE_HINT;
+  return gap;
+}
+
+export interface GitSection {
+  available: boolean;
+  anchor: AnchorLabel;
+  branch_then: string | null;
+  branch_now: string | null;
+  branch_changed: boolean;
+  commits: CommitInfo[];
+  commit_count: number;
+  commits_truncated: boolean;
+  files_changed: FileStat[];
+  files_changed_truncated: boolean;
+  working_tree_dirty: boolean;
+  untracked_count: number;
+  stash_count: number;
+}
+
+const EMPTY_GIT_SECTION: GitSection = {
+  available: false,
+  anchor: 'none',
+  branch_then: null,
+  branch_now: null,
+  branch_changed: false,
+  commits: [],
+  commit_count: 0,
+  commits_truncated: false,
+  files_changed: [],
+  files_changed_truncated: false,
+  working_tree_dirty: false,
+  untracked_count: 0,
+  stash_count: 0,
+};
+
+// Assemble the git.* section, degrading field-by-field instead of failing
+// outright when individual git calls fail. Returns any degraded reasons
+// picked up along the way (anchor fallback, unreadable repo, etc).
+function buildGitSection(repoPath: string | null, lastSession: LastSessionRow | null): { git: GitSection; degradedReasons: string[] } {
+  if (!repoPath) {
+    return { git: EMPTY_GIT_SECTION, degradedReasons: [] };
+  }
+
+  const branchThen = lastSession?.end_git_branch ?? null;
+  const branchNowResult = currentBranch(repoPath);
+  if (!branchNowResult.ok) {
+    return {
+      git: { ...EMPTY_GIT_SECTION, branch_then: branchThen },
+      degradedReasons: [`git repository at repo_path is not accessible: ${branchNowResult.reason}`],
+    };
+  }
+  const branchNow = branchNowResult.branch;
+
+  const degradedReasons: string[] = [];
+  const anchorRes = resolveAnchor(repoPath, lastSession);
+  degradedReasons.push(...anchorRes.degradedReasons);
+
+  let commits: CommitInfo[] = [];
+  let commitCount = 0;
+  let commitsTruncated = false;
+  let files: FileStat[] = [];
+  let filesTruncated = false;
+
+  if (anchorRes.anchor) {
+    const logResult = logSince(repoPath, anchorRes.anchor);
+    if (logResult.ok) {
+      commitCount = logResult.commits.length;
+      commitsTruncated = commitCount > COMMIT_CAP;
+      commits = logResult.commits.slice(0, COMMIT_CAP);
+    } else {
+      degradedReasons.push(`could not read git log: ${logResult.reason}`);
+    }
+
+    const diffResult = diffStatSince(repoPath, anchorRes.anchor);
+    if (diffResult.ok) {
+      // Sorted by churn (added + deleted), most-changed first.
+      const sorted = [...diffResult.files].sort((a, b) => b.added + b.deleted - (a.added + a.deleted));
+      filesTruncated = sorted.length > FILE_CAP;
+      files = sorted.slice(0, FILE_CAP);
+    } else {
+      degradedReasons.push(`could not read git diff stat: ${diffResult.reason}`);
+    }
+  }
+
+  const dirtyResult = isDirty(repoPath);
+  if (!dirtyResult.ok) degradedReasons.push(`could not read working tree status: ${dirtyResult.reason}`);
+  const untrackedResult = untrackedCount(repoPath);
+  if (!untrackedResult.ok) degradedReasons.push(`could not count untracked files: ${untrackedResult.reason}`);
+  const stashResult = stashCount(repoPath);
+  if (!stashResult.ok) degradedReasons.push(`could not count stashes: ${stashResult.reason}`);
+
+  return {
+    git: {
+      available: true,
+      anchor: anchorRes.anchorLabel,
+      branch_then: branchThen,
+      branch_now: branchNow,
+      branch_changed: branchThen !== null && branchNow !== null && branchThen !== branchNow,
+      commits,
+      commit_count: commitCount,
+      commits_truncated: commitsTruncated,
+      files_changed: files,
+      files_changed_truncated: filesTruncated,
+      working_tree_dirty: dirtyResult.ok ? dirtyResult.dirty : false,
+      untracked_count: untrackedResult.ok ? untrackedResult.count : 0,
+      stash_count: stashResult.ok ? stashResult.count : 0,
+    },
+    degradedReasons,
+  };
+}
+
+export interface SessionBrief {
+  project: string;
+  degraded: boolean;
+  degraded_reasons: string[];
+  gap: Gap | null;
+  handoff: { last_session_summary: string; next_steps: string | null } | null;
+  git: GitSection;
+  tasks: {
+    changed: TaskStatusChange[];
+    in_progress_now: TaskSummary[];
+    next_suggested: NextSuggestedTask[];
+  };
+  blockers: BlockerInfo[];
+  decisions_since: DecisionSummary[];
+  notes_since_count: number;
+}
+
+// Compose the full session brief: a deterministic delta between the end of
+// a project's last session and now. Never throws — every sub-section
+// degrades independently (see buildGitSection / getTaskAndDecisionDelta),
+// and a missing prior session simply yields a brief with gap/handoff null
+// rather than an error.
+export function buildSessionBrief(projectId: string, projectName: string): SessionBrief {
+  const db = getDb();
+  const lastSession = (db
+    .prepare('SELECT * FROM sessions WHERE project_id = ? ORDER BY created_at DESC LIMIT 1')
+    .get(projectId) as LastSessionRow | undefined) ?? null;
+
+  const repoPath = resolveRepoPath(projectId);
+  const { git, degradedReasons } = buildGitSection(repoPath, lastSession);
+
+  const cutoff = lastSession ? lastSession.ended_at ?? lastSession.created_at : null;
+  const delta = getTaskAndDecisionDelta(db, projectId, cutoff);
+
+  const gap = lastSession ? computeGap(lastSession.ended_at ?? lastSession.created_at, new Date()) : null;
+  const handoff = lastSession ? { last_session_summary: lastSession.summary, next_steps: lastSession.next_steps } : null;
+
+  return {
+    project: projectName,
+    degraded: degradedReasons.length > 0,
+    degraded_reasons: degradedReasons,
+    gap,
+    handoff,
+    git,
+    tasks: {
+      changed: delta.changed,
+      in_progress_now: delta.in_progress_now,
+      next_suggested: delta.next_suggested,
+    },
+    blockers: delta.blockers,
+    decisions_since: delta.decisions_since,
+    notes_since_count: delta.notes_since_count,
+  };
 }
