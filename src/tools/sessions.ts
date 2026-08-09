@@ -1,7 +1,23 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod/v4';
-import { getDb, generateId, resolveProjectOrDefault, resolveProjectError } from '../db/queries.js';
+import { getDb, generateId, resolveProjectOrDefault, resolveProjectError, resolveRepoPath } from '../db/queries.js';
 import { buildSessionText, markSessionStarted } from './auto-session.js';
+import { resolveHead, currentBranch } from '../utils/git.js';
+
+// Best-effort snapshot of HEAD sha + branch for a project's repo. Never
+// throws — a missing/unconfigured/broken repo just yields null fields, since
+// ending a session must never fail because of git.
+function captureGitState(projectId: string): { sha: string | null; branch: string | null } {
+  const repoPath = resolveRepoPath(projectId);
+  if (!repoPath) return { sha: null, branch: null };
+
+  const head = resolveHead(repoPath);
+  const branch = currentBranch(repoPath);
+  return {
+    sha: head.ok ? head.sha : null,
+    branch: branch.ok ? branch.branch : null,
+  };
+}
 
 export function registerSessionTools(server: McpServer): void {
   server.registerTool(
@@ -49,8 +65,10 @@ export function registerSessionTools(server: McpServer): void {
 
       const db = getDb();
       const id = generateId();
+      const gitState = captureGitState(resolved.id);
       db.prepare(
-        `INSERT INTO sessions (id, project_id, summary, tasks_worked_on, decisions_made, next_steps) VALUES (?, ?, ?, ?, ?, ?)`
+        `INSERT INTO sessions (id, project_id, summary, tasks_worked_on, decisions_made, next_steps, ended_at, end_git_sha, end_git_branch)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         id,
         resolved.id,
@@ -58,6 +76,9 @@ export function registerSessionTools(server: McpServer): void {
         tasks_worked_on ? JSON.stringify(tasks_worked_on) : null,
         decisions_made ? JSON.stringify(decisions_made) : null,
         next_steps ?? null,
+        new Date().toISOString(),
+        gitState.sha,
+        gitState.branch,
       );
 
       return {

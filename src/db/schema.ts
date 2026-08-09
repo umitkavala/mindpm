@@ -72,6 +72,9 @@ export function createSchema(db: Database.Database): void {
       tasks_worked_on TEXT,
       decisions_made TEXT,
       next_steps TEXT,
+      ended_at TEXT,
+      end_git_sha TEXT,
+      end_git_branch TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
