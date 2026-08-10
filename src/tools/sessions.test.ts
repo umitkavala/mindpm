@@ -1,9 +1,14 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   createTestDb, closeTestDb, getTestDb, seedProject, seedTask,
   seedDecision, seedSession, seedNote, seedContext, parseToolResult, createToolCaller,
 } from '../test-helpers/setup.js';
+import { getSessionStartedProjects } from '../utils/session-state.js';
 
 vi.mock('../db/connection.js', () => ({
   getDb: () => getTestDb(),
@@ -78,6 +83,66 @@ describe('start_session', () => {
   it('returns error when project not found', async () => {
     const result = await callTool('start_session', { project: 'nope' });
     expect(result.isError).toBe(true);
+  });
+
+  it('embeds the brief as a separate field by default', async () => {
+    const db = getTestDb();
+    seedProject(db, { id: 'p1', name: 'P' });
+
+    const result = await callTool('start_session', { project: 'P' });
+    const parsed = parseToolResult(result);
+    expect(parsed.brief).toBeDefined();
+    expect(parsed.brief.project).toBe('P');
+    expect(parsed.brief.degraded).toBe(false);
+  });
+
+  it('omits the brief when brief: false is passed', async () => {
+    const db = getTestDb();
+    seedProject(db, { id: 'p1', name: 'P' });
+
+    const result = await callTool('start_session', { project: 'P', brief: false });
+    const parsed = parseToolResult(result);
+    expect(parsed.brief).toBeUndefined();
+  });
+});
+
+describe('get_session_brief', () => {
+  it('returns the brief without opening a session', async () => {
+    const db = getTestDb();
+    seedProject(db, { id: 'p1', name: 'P' });
+    db.prepare(
+      `INSERT INTO sessions (id, project_id, summary, next_steps, ended_at, created_at) VALUES ('s1', 'p1', 'Did X', 'Do Y', '2026-08-08T22:00:00.000Z', '2026-08-08T22:00:00.000Z')`,
+    ).run();
+
+    const result = await callTool('get_session_brief', { project: 'P' });
+    const parsed = parseToolResult(result);
+    expect(parsed.project).toBe('P');
+    expect(parsed.handoff).toEqual({ last_session_summary: 'Did X', next_steps: 'Do Y' });
+    expect(parsed.gap).not.toBeNull();
+  });
+
+  it('does not mark the project as session-started', async () => {
+    const db = getTestDb();
+    seedProject(db, { id: 'p1', name: 'P' });
+
+    await callTool('get_session_brief', { project: 'P' });
+    expect(getSessionStartedProjects()).toEqual([]);
+  });
+
+  it('returns error when project not found', async () => {
+    const result = await callTool('get_session_brief', { project: 'nope' });
+    expect(result.isError).toBe(true);
+  });
+
+  it('returns gap: null for a project with no prior sessions', async () => {
+    const db = getTestDb();
+    seedProject(db, { id: 'p1', name: 'P' });
+
+    const result = await callTool('get_session_brief', { project: 'P' });
+    const parsed = parseToolResult(result);
+    expect(parsed.gap).toBeNull();
+    expect(parsed.handoff).toBeNull();
+    expect(parsed.degraded).toBe(false);
   });
 });
 
@@ -318,5 +383,83 @@ describe('end_session', () => {
   it('returns error when project not found', async () => {
     const result = await callTool('end_session', { project: 'nope', summary: 'S' });
     expect(result.isError).toBe(true);
+  });
+
+  it('sets ended_at on every session', async () => {
+    const db = getTestDb();
+    seedProject(db, { id: 'p1', name: 'P' });
+
+    const result = await callTool('end_session', { project: 'P', summary: 'S' });
+    const parsed = parseToolResult(result);
+    const row = db.prepare('SELECT * FROM sessions WHERE id = ?').get(parsed.session_id) as any;
+    expect(row.ended_at).toBeDefined();
+    expect(row.ended_at).not.toBeNull();
+  });
+
+  it('leaves end_git_sha/end_git_branch null when the project has no repo_path', async () => {
+    const db = getTestDb();
+    seedProject(db, { id: 'p1', name: 'P' });
+
+    const result = await callTool('end_session', { project: 'P', summary: 'S' });
+    const parsed = parseToolResult(result);
+    const row = db.prepare('SELECT * FROM sessions WHERE id = ?').get(parsed.session_id) as any;
+    expect(row.end_git_sha).toBeNull();
+    expect(row.end_git_branch).toBeNull();
+  });
+
+  describe('with a real repo_path', () => {
+    let repoDir: string;
+
+    beforeEach(() => {
+      repoDir = mkdtempSync(join(tmpdir(), 'mindpm-end-session-'));
+      execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: repoDir });
+      execFileSync('git', ['config', 'user.email', 't@e.com'], { cwd: repoDir });
+      execFileSync('git', ['config', 'user.name', 'T'], { cwd: repoDir });
+      execFileSync('git', ['config', 'commit.gpgsign', 'false'], { cwd: repoDir });
+    });
+
+    afterEach(() => {
+      rmSync(repoDir, { recursive: true, force: true });
+    });
+
+    it('captures end_git_sha and end_git_branch from HEAD', async () => {
+      writeFileSync(join(repoDir, 'a.txt'), 'v1');
+      execFileSync('git', ['add', 'a.txt'], { cwd: repoDir });
+      execFileSync('git', ['commit', '-q', '-m', 'Initial'], { cwd: repoDir });
+      const expectedSha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoDir, encoding: 'utf8' }).trim();
+
+      const db = getTestDb();
+      seedProject(db, { id: 'p1', name: 'P', repo_path: repoDir });
+
+      const result = await callTool('end_session', { project: 'P', summary: 'S' });
+      const parsed = parseToolResult(result);
+      const row = db.prepare('SELECT * FROM sessions WHERE id = ?').get(parsed.session_id) as any;
+      expect(row.end_git_sha).toBe(expectedSha);
+      expect(row.end_git_branch).toBe('main');
+    });
+
+    it('leaves end_git_sha/end_git_branch null for a repo with zero commits, without failing', async () => {
+      const db = getTestDb();
+      seedProject(db, { id: 'p1', name: 'P', repo_path: repoDir });
+
+      const result = await callTool('end_session', { project: 'P', summary: 'S' });
+      expect(result.isError).toBeUndefined();
+      const parsed = parseToolResult(result);
+      const row = db.prepare('SELECT * FROM sessions WHERE id = ?').get(parsed.session_id) as any;
+      expect(row.end_git_sha).toBeNull();
+    });
+
+    it('does not fail end_session when repo_path no longer points to a git repo', async () => {
+      rmSync(join(repoDir, '.git'), { recursive: true, force: true });
+      const db = getTestDb();
+      seedProject(db, { id: 'p1', name: 'P', repo_path: repoDir });
+
+      const result = await callTool('end_session', { project: 'P', summary: 'S' });
+      expect(result.isError).toBeUndefined();
+      const parsed = parseToolResult(result);
+      const row = db.prepare('SELECT * FROM sessions WHERE id = ?').get(parsed.session_id) as any;
+      expect(row.end_git_sha).toBeNull();
+      expect(row.end_git_branch).toBeNull();
+    });
   });
 });

@@ -1,5 +1,8 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import {
   createTestDb, closeTestDb, getTestDb, seedProject, seedTask,
   seedDecision, seedSession, parseToolResult, createToolCaller,
@@ -21,8 +24,14 @@ beforeEach(() => {
   callTool = createToolCaller(server);
 });
 
+let tmpDir: string;
+
 afterEach(() => {
   closeTestDb();
+  if (tmpDir) {
+    rmSync(tmpDir, { recursive: true, force: true });
+    tmpDir = '';
+  }
 });
 
 describe('create_project', () => {
@@ -66,6 +75,75 @@ describe('create_project', () => {
     expect(row.description).toBeNull();
     expect(row.tech_stack).toBeNull();
     expect(row.repo_path).toBeNull();
+  });
+
+  it('accepts a repo_path that exists and contains .git', async () => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'mindpm-repo-'));
+    mkdirSync(join(tmpDir, '.git'));
+
+    const result = await callTool('create_project', { name: 'WithRepo', repo_path: tmpDir });
+    const parsed = parseToolResult(result);
+    expect(result.isError).toBeUndefined();
+    const db = getTestDb();
+    const row = db.prepare('SELECT repo_path FROM projects WHERE id = ?').get(parsed.project_id) as any;
+    expect(row.repo_path).toBe(tmpDir);
+  });
+
+  it('rejects a repo_path that does not exist', async () => {
+    const result = await callTool('create_project', { name: 'BadRepo', repo_path: '/nonexistent/path/xyz' });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('does not exist');
+  });
+
+  it('rejects a repo_path with no .git directory', async () => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'mindpm-norepo-'));
+
+    const result = await callTool('create_project', { name: 'NoGit', repo_path: tmpDir });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('not a git repository');
+  });
+
+  it('rejects a repo_path that is a file, not a directory', async () => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'mindpm-file-'));
+    const filePath = join(tmpDir, 'not-a-dir');
+    writeFileSync(filePath, 'x');
+
+    const result = await callTool('create_project', { name: 'FileRepo', repo_path: filePath });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('not a directory');
+  });
+});
+
+describe('set_project_repo_path', () => {
+  it('updates repo_path for a valid git directory', async () => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'mindpm-set-'));
+    mkdirSync(join(tmpDir, '.git'));
+    const db = getTestDb();
+    seedProject(db, { id: 'p1', name: 'P' });
+
+    const result = await callTool('set_project_repo_path', { project: 'P', repo_path: tmpDir });
+    const parsed = parseToolResult(result);
+    expect(result.isError).toBeUndefined();
+    expect(parsed.repo_path).toBe(tmpDir);
+
+    const row = db.prepare('SELECT repo_path FROM projects WHERE id = ?').get('p1') as any;
+    expect(row.repo_path).toBe(tmpDir);
+  });
+
+  it('rejects an invalid repo_path and leaves the project untouched', async () => {
+    const db = getTestDb();
+    seedProject(db, { id: 'p1', name: 'P', repo_path: '/old/path' });
+
+    const result = await callTool('set_project_repo_path', { project: 'P', repo_path: '/nonexistent' });
+    expect(result.isError).toBe(true);
+
+    const row = db.prepare('SELECT repo_path FROM projects WHERE id = ?').get('p1') as any;
+    expect(row.repo_path).toBe('/old/path');
+  });
+
+  it('returns error when project not found', async () => {
+    const result = await callTool('set_project_repo_path', { project: 'nope', repo_path: '/tmp' });
+    expect(result.isError).toBe(true);
   });
 });
 

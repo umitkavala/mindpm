@@ -72,6 +72,9 @@ export function createSchema(db: Database.Database): void {
       tasks_worked_on TEXT,
       decisions_made TEXT,
       next_steps TEXT,
+      ended_at TEXT,
+      end_git_sha TEXT,
+      end_git_branch TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -291,6 +294,18 @@ export function runMigrations(db: Database.Database): void {
       CREATE INDEX IF NOT EXISTS idx_tasks_created_at ON tasks(created_at);
       CREATE INDEX IF NOT EXISTS idx_tasks_seq ON tasks(project_id, seq);
     `);
+  }
+
+  // Add session-brief columns to sessions if missing
+  const sessionCols = (db.pragma('table_info(sessions)') as { name: string }[]).map(c => c.name);
+  if (!sessionCols.includes('ended_at')) {
+    db.exec('ALTER TABLE sessions ADD COLUMN ended_at TEXT');
+  }
+  if (!sessionCols.includes('end_git_sha')) {
+    db.exec('ALTER TABLE sessions ADD COLUMN end_git_sha TEXT');
+  }
+  if (!sessionCols.includes('end_git_branch')) {
+    db.exec('ALTER TABLE sessions ADD COLUMN end_git_branch TEXT');
   }
 
   // Backfill task_history created events for existing tasks (run once)

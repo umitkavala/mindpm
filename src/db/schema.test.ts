@@ -178,3 +178,44 @@ describe('runMigrations FTS upgrade path', () => {
     old.close();
   });
 });
+
+describe('runMigrations session-brief columns', () => {
+  it('adds ended_at, end_git_sha, end_git_branch to sessions idempotently without data loss', () => {
+    const old = new Database(':memory:');
+    old.pragma('foreign_keys = ON');
+    old.exec(`
+      CREATE TABLE projects (
+        id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, description TEXT,
+        status TEXT DEFAULT 'active', repo_path TEXT, tech_stack TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE sessions (
+        id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id),
+        summary TEXT NOT NULL, tasks_worked_on TEXT, decisions_made TEXT, next_steps TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+      INSERT INTO projects (id, name) VALUES ('p1', 'P');
+      INSERT INTO sessions (id, project_id, summary, next_steps) VALUES ('s1', 'p1', 'Did X', 'Do Y');
+    `);
+
+    createSchema(old);
+    runMigrations(old);
+
+    const colsAfterFirst = (old.pragma('table_info(sessions)') as { name: string }[]).map(c => c.name);
+    expect(colsAfterFirst).toEqual(expect.arrayContaining(['ended_at', 'end_git_sha', 'end_git_branch']));
+
+    const rowAfterFirst = old.prepare("SELECT * FROM sessions WHERE id = 's1'").get() as any;
+    expect(rowAfterFirst.summary).toBe('Did X');
+    expect(rowAfterFirst.next_steps).toBe('Do Y');
+    expect(rowAfterFirst.ended_at).toBeNull();
+    expect(rowAfterFirst.end_git_sha).toBeNull();
+    expect(rowAfterFirst.end_git_branch).toBeNull();
+
+    // Run again: must not throw and must not touch existing data.
+    expect(() => runMigrations(old)).not.toThrow();
+    const rowAfterSecond = old.prepare("SELECT * FROM sessions WHERE id = 's1'").get() as any;
+    expect(rowAfterSecond).toEqual(rowAfterFirst);
+
+    old.close();
+  });
+});
