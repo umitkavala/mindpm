@@ -166,7 +166,7 @@ export function registerQueryTools(server: McpServer): void {
     'search',
     {
       title: 'Search Everything',
-      description: 'Full-text search (FTS5, ranked by relevance) across tasks, notes, and decisions for a project.',
+      description: 'Full-text search (FTS5, ranked by relevance) across tasks, notes, decisions, specs and attempt root causes for a project.',
       inputSchema: {
         project: z.string().optional().describe('Project name or ID'),
         query: z.string().describe('Search query'),
@@ -188,9 +188,13 @@ export function registerQueryTools(server: McpServer): void {
       let tasks: unknown[];
       let notes: unknown[];
       let decisions: unknown[];
+      let specs: unknown[];
+      let attempts: unknown[];
       let taskTotal: number;
       let noteTotal: number;
       let decisionTotal: number;
+      let specTotal: number;
+      let attemptTotal: number;
       let engine: 'fts' | 'like';
 
       if (match && ftsReady(db)) {
@@ -208,6 +212,16 @@ export function registerQueryTools(server: McpServer): void {
         taskTotal = (db.prepare('SELECT COUNT(*) as n FROM tasks_fts JOIN tasks t ON t.rowid = tasks_fts.rowid WHERE tasks_fts MATCH ? AND t.project_id = ?').get(match, resolved.id) as { n: number }).n;
         noteTotal = (db.prepare('SELECT COUNT(*) as n FROM notes_fts JOIN notes n ON n.rowid = notes_fts.rowid WHERE notes_fts MATCH ? AND n.project_id = ?').get(match, resolved.id) as { n: number }).n;
         decisionTotal = (db.prepare('SELECT COUNT(*) as n FROM decisions_fts JOIN decisions d ON d.rowid = decisions_fts.rowid WHERE decisions_fts MATCH ? AND d.project_id = ?').get(match, resolved.id) as { n: number }).n;
+        specs = db
+          .prepare(`SELECT s.id, 'SPEC-' || s.seq AS key, s.title, s.objective, s.status, 'spec' as type FROM specs_fts JOIN specs s ON s.rowid = specs_fts.rowid WHERE specs_fts MATCH ? AND s.project_id = ? ORDER BY bm25(specs_fts) LIMIT ?`)
+          .all(match, resolved.id, limit);
+        specTotal = (db.prepare('SELECT COUNT(*) as n FROM specs_fts JOIN specs s ON s.rowid = specs_fts.rowid WHERE specs_fts MATCH ? AND s.project_id = ?').get(match, resolved.id) as { n: number }).n;
+        attempts = db
+          .prepare(`SELECT a.task_id, p.slug || '-' || t.seq AS task_key, a.attempt_no, a.outcome, a.failure_type, a.root_cause, 'attempt' as type
+                    FROM attempts_fts JOIN attempts a ON a.rowid = attempts_fts.rowid JOIN tasks t ON t.id = a.task_id JOIN projects p ON p.id = t.project_id
+                    WHERE attempts_fts MATCH ? AND t.project_id = ? ORDER BY bm25(attempts_fts) LIMIT ?`)
+          .all(match, resolved.id, limit);
+        attemptTotal = (db.prepare('SELECT COUNT(*) as n FROM attempts_fts JOIN attempts a ON a.rowid = attempts_fts.rowid JOIN tasks t ON t.id = a.task_id WHERE attempts_fts MATCH ? AND t.project_id = ?').get(match, resolved.id) as { n: number }).n;
       } else {
         engine = 'like';
         const pattern = `%${query}%`;
@@ -223,9 +237,20 @@ export function registerQueryTools(server: McpServer): void {
         decisions = db
           .prepare("SELECT id, title, decision, reasoning, 'decision' as type FROM decisions WHERE project_id = ? AND (title LIKE ? OR decision LIKE ? OR reasoning LIKE ?) ORDER BY created_at DESC LIMIT ?")
           .all(resolved.id, pattern, pattern, pattern, limit);
+        specTotal = (db.prepare('SELECT COUNT(*) as n FROM specs WHERE project_id = ? AND (title LIKE ? OR objective LIKE ? OR why LIKE ?)').get(resolved.id, pattern, pattern, pattern) as { n: number }).n;
+        specs = db
+          .prepare("SELECT id, 'SPEC-' || seq AS key, title, objective, status, 'spec' as type FROM specs WHERE project_id = ? AND (title LIKE ? OR objective LIKE ? OR why LIKE ?) ORDER BY updated_at DESC LIMIT ?")
+          .all(resolved.id, pattern, pattern, pattern, limit);
+        attemptTotal = (db.prepare('SELECT COUNT(*) as n FROM attempts a JOIN tasks t ON t.id = a.task_id WHERE t.project_id = ? AND a.root_cause LIKE ?').get(resolved.id, pattern) as { n: number }).n;
+        attempts = db
+          .prepare(`SELECT a.task_id, p.slug || '-' || t.seq AS task_key, a.attempt_no, a.outcome, a.failure_type, a.root_cause, 'attempt' as type
+                    FROM attempts a JOIN tasks t ON t.id = a.task_id JOIN projects p ON p.id = t.project_id
+                    WHERE t.project_id = ? AND a.root_cause LIKE ? ORDER BY a.started_at DESC LIMIT ?`)
+          .all(resolved.id, pattern, limit);
       }
 
-      const truncated = taskTotal > tasks.length || noteTotal > notes.length || decisionTotal > decisions.length;
+      const truncated = taskTotal > tasks.length || noteTotal > notes.length || decisionTotal > decisions.length
+        || specTotal > specs.length || attemptTotal > attempts.length;
       const resultText = JSON.stringify(
         {
           project: resolved.name,
@@ -233,9 +258,9 @@ export function registerQueryTools(server: McpServer): void {
           engine,
           limit,
           truncated,
-          counts: { tasks: taskTotal, notes: noteTotal, decisions: decisionTotal },
-          results: { tasks, notes, decisions },
-          total: taskTotal + noteTotal + decisionTotal,
+          counts: { tasks: taskTotal, notes: noteTotal, decisions: decisionTotal, specs: specTotal, attempts: attemptTotal },
+          results: { tasks, notes, decisions, specs, attempts },
+          total: taskTotal + noteTotal + decisionTotal + specTotal + attemptTotal,
         },
         null,
         2,

@@ -1,5 +1,33 @@
 # Changelog
 
+## 2.0.0
+
+Phase 1 of agent execution: a task can be run by an agent with no conversation context, parallel agents never collide, and every attempt leaves a memory for the next one.
+
+### Breaking
+
+- Task statuses are now handoff states: `backlog`, `ready`, `claimed`, `blocked`, `needs_verification`, `needs_human`, `done`, `cancelled` (`verified` is reserved). The migration maps `todo` and `in_progress` to `ready` and `in_review` to `needs_verification`. Old `in_progress` work has no claim, so it returns to the queue.
+- Setting status through `update_task` or the Kanban board requires a human actor (`actor: "human:<name>"`; the board counts as `human:ui`) and a legal transition. Agents get `illegal_transition`. Old status names are still accepted by `update_task` for this release, with a deprecation warning.
+- The session brief's `in_progress_now` is renamed `claimed_now`.
+- `get_next_tasks` and the session brief's suggestions now list `ready` and `claimed` tasks.
+
+### Added
+
+- Specs with acceptance criteria and risk levels: `create_spec`, `update_spec`, `approve_spec`, `supersede_spec`, `get_spec`. Approval writes `specs/SPEC-<n>.md` into the repo after the database commits.
+- Executor protocol: `pick_task`, `claim_task`, `get_task_brief`, `heartbeat`, `submit_task`, `report_failure`, `escalate`, `release_task`. Claims are atomic, leased and fenced by a claim token.
+- Human and reviewer gates: `review_task`, `resolve_needs_human`.
+- `set_execution_defaults` and new `create_project` parameters for coding conventions and verification commands.
+- `create_task` takes `spec_id`, `criteria`, `verification`, `branch` and `blocked_by`. `update_task` takes `verification`, `branch`, `criteria` and `actor`. `log_decision` takes `spec_id` and `supersedes`.
+- A task reaching done moves blocked tasks whose blockers are all done to ready.
+- `search` covers spec text and attempt root causes.
+- `get_agent_instructions` describes the architect, executor and review protocol.
+
+### Notes
+
+- The migration rebuilds the `tasks` table in one transaction and is additive everywhere else. Task history keeps its original status names.
+- Actor ids are declared, not authenticated. mindpm is local-only, and anything reaching the HTTP port is treated as a human.
+- `~/.mindpm/AGENT.md` is only written when missing. Delete it to regenerate it with the new instructions.
+
 ## 1.4.0
 
 ### Added

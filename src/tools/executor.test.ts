@@ -390,6 +390,17 @@ describe('pick_task', () => {
 });
 
 describe('task brief', () => {
+  it('merges task verification over project defaults', async () => {
+    const { task } = await readyTask({}, { verification: { unit: 'dotnet test tests/unit --filter Inactivity', lint: 'dotnet format --verify-no-changes' } });
+    const brief = await call('get_task_brief', { task_id: task.task_id });
+    expect(brief.verification).toEqual({
+      build: 'dotnet build',
+      unit: 'dotnet test tests/unit --filter Inactivity',
+      lint: 'dotnet format --verify-no-changes',
+    });
+    expect(brief.project.tech_stack).toBe('C#, .NET 9, PostgreSQL');
+  });
+
   it('includes spec-linked and FTS-ranked decisions but never superseded ones, with hostile spec text', async () => {
     const hostile = {
       title: 'Timeout: "sweep" AND/OR NEAR(close idle) -- conversations*',

@@ -25,7 +25,9 @@ LLM: [queries mindpm] "Last session you finished the auth refactor.
 
 ## What It Tracks
 
-- **Tasks** — status, priority, blockers, sub-tasks
+- **Tasks** — handoff status, priority, blockers, sub-tasks
+- **Specs** — objective, why, approach, constraints and acceptance criteria an agent can execute against
+- **Attempts** — every agent run on a task: outcome, root cause, what to avoid next time
 - **Decisions** — what was decided, why, what alternatives were rejected
 - **Notes** — architecture, bugs, ideas, research
 - **Context** — key-value pairs (tech stack, conventions, config)
@@ -110,6 +112,28 @@ Example output:
 `gap.label` is `same-day` (<6h), `overnight` (6-20h), `multi-day` (20h-14d), or `stale` (>14d) — a stale gap adds a `gap.hint` telling the agent to re-verify context rather than trust `next_steps` at face value.
 
 The git delta is anchored on the exact commit sha recorded when the prior session ended (via `end_session`), not on a timestamp — sha-based anchoring survives rebases and amends that would break a clock-based diff. If that sha becomes unreachable (force-push, rebase, or the repo was pruned), the brief transparently falls back to a timestamp anchor and reports it in `degraded_reasons`. A broken or missing repo never fails the brief — it just comes back with `git.available: false` and `degraded: true`, while the task/blocker/decision delta is unaffected.
+
+## Agent Execution
+
+mindpm can hand a task to a coding agent that has no conversation context, and keep parallel agents from colliding.
+
+**Lifecycle.** Task statuses are handoffs, enforced by the server:
+
+```
+backlog ──approve_spec──► ready ──claim_task──► claimed ──submit_task──► needs_verification ──review_task──► done
+                            ▲                     │                                │
+                            │      report_failure / release_task / lease expiry    │ reject
+                            └─────────────────────┴────────────────────────────────┘
+                     blocked ◄── dependency          needs_human ◄── spec_gap, design_conflict, escalate, attempts exhausted
+```
+
+Phases inside a run (implementing, testing, fixing) are heartbeat events, not statuses. Agents can't write status; only a human (`human:<name>`) can, through `update_task` or the Kanban board. When a task reaches done, blocked tasks whose blockers are all done move to ready.
+
+**Specs.** An architect (`agent:architect` or a human) writes a spec with acceptance criteria and a risk level, then links tasks to it. Tasks wait in backlog until the spec is approved. Medium and high risk need a human to approve and to accept the work; `agent:reviewer` may accept low-risk work. Approval writes `specs/SPEC-<n>.md` into the repo for a human to commit. The database stays the source of truth.
+
+**Claims.** `claim_task` is atomic and returns a claim token plus the task brief. The lease (30 minutes by default, 120 max) is extended by `heartbeat`; an expired lease ends the attempt, counts toward `max_attempts` (3 by default), and returns the task to the queue. Every write after the claim is authorized by the token, so an agent whose lease lapsed can't overwrite a newer attempt.
+
+**Brief.** `get_task_brief` returns the whole contract for one run in under about 2,000 tokens: task, spec, criteria, conventions, verification commands (project defaults, overridden per task), relevant decisions (spec-linked plus the top 5 by full-text rank; superseded decisions never appear), dependencies, and what previous attempts learned.
 
 ## Setup
 
@@ -219,20 +243,48 @@ That's it. The LLM now has access to mindpm tools. Just start talking about your
 | `list_projects` | List all projects |
 | `get_project_status` | Full project overview |
 | `set_project_repo_path` | Set/update the project's local git repo path (enables the session brief's git delta) |
+| `set_execution_defaults` | Coding conventions and verification commands included in every task brief |
 
 ### Tasks
 | Tool | Description |
 |------|-------------|
-| `create_task` | Add a task |
-| `update_task` | Update status, priority, etc. |
+| `create_task` | Add a task, optionally linked to a spec and its criteria |
+| `update_task` | Update fields; status changes need a human actor |
 | `list_tasks` | List with filters |
-| `get_task` | Full task detail with sub-tasks and notes |
-| `get_next_tasks` | Smart: highest priority, unblocked |
+| `get_task` | Full task detail with sub-tasks, notes, criteria and attempts |
+| `get_next_tasks` | Planning view: highest priority ready or claimed tasks |
+
+### Specs
+| Tool | Description |
+|------|-------------|
+| `create_spec` | Draft a spec with acceptance criteria and a risk level |
+| `update_spec` | Edit a spec (optimistic `expected_version`); editing an approved spec bumps its version |
+| `approve_spec` | Approve a draft; releases its backlog tasks and writes `specs/SPEC-<n>.md` |
+| `supersede_spec` | Replace a spec; cancels its unfinished tasks |
+| `get_spec` | Spec, criteria, linked tasks and decisions |
+
+### Executor
+| Tool | Description |
+|------|-------------|
+| `pick_task` | Next workable task: ready, spec approved, blockers done, no live lease |
+| `claim_task` | Exclusive claim with a lease; returns the claim token and the brief |
+| `get_task_brief` | Everything needed to execute a task, in one read |
+| `heartbeat` | Extend the lease, log the phase, learn whether the spec changed |
+| `submit_task` | Hand over work with branch, head SHA and a result per criterion |
+| `report_failure` | End the attempt with a root cause the next attempt will see |
+| `escalate` | Ask a human; doesn't use up an attempt |
+| `release_task` | Give the task back; doesn't use up an attempt |
+
+### Review
+| Tool | Description |
+|------|-------------|
+| `review_task` | Accept or reject submitted work |
+| `resolve_needs_human` | Requeue, cancel, or send the spec back for revision |
 
 ### Decisions
 | Tool | Description |
 |------|-------------|
-| `log_decision` | Record a decision with reasoning |
+| `log_decision` | Record a decision with reasoning, optionally linked to a spec or superseding an older one |
 | `list_decisions` | Browse decision history |
 
 ### Notes & Context
@@ -256,7 +308,7 @@ That's it. The LLM now has access to mindpm tools. Just start talking about your
 | `query` | Read-only SQL against the database |
 | `get_project_summary` | Tasks by status, blockers, recent activity |
 | `get_blockers` | All blocked tasks with what's blocking them |
-| `search` | Full-text search across everything |
+| `search` | Full-text search across tasks, notes, decisions, specs and attempt root causes |
 
 ## How It Works
 

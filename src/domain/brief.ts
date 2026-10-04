@@ -47,6 +47,13 @@ function parseObject(raw: string | null): Record<string, string> {
   }
 }
 
+// tech_stack is stored as a JSON array by create_project; older rows may hold plain text.
+function techStack(raw: string | null): string | null {
+  if (!raw) return null;
+  const list = parseJsonArray(raw);
+  return list.length ? list.join(', ') : raw;
+}
+
 // Active decisions linked to the spec, then the top-ranked active decisions
 // by FTS against the spec (or, for a plain task, the task) text.
 function relevantDecisions(db: Database.Database, projectId: string, spec: SpecRow | null, fallbackText: string): BriefDecision[] {
@@ -134,7 +141,7 @@ export function buildBrief(db: Database.Database, taskId: string): TaskBrief {
       : [],
     project: {
       name: task.project_name,
-      tech_stack: task.tech_stack,
+      tech_stack: techStack(task.tech_stack),
       conventions: task.conventions,
       repo_path: resolveRepoPath(task.project_id),
     },

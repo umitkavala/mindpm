@@ -232,3 +232,14 @@ describe('get_project_status', () => {
     expect(doneCount.count).toBe(1);
   });
 });
+
+describe('set_execution_defaults', () => {
+  it('stores conventions and verification commands for briefs', async () => {
+    const db = getTestDb();
+    seedProject(db, { id: 'p1', name: 'P' });
+    await callTool('set_execution_defaults', { project: 'P', conventions: 'No ORMs.', verification_defaults: { build: 'npm run build' } });
+    const row = db.prepare('SELECT conventions, verification_defaults FROM projects WHERE id = ?').get('p1') as any;
+    expect(row).toEqual({ conventions: 'No ORMs.', verification_defaults: '{"build":"npm run build"}' });
+    expect((await callTool('set_execution_defaults', { project: 'P' })).isError).toBe(true);
+  });
+});
