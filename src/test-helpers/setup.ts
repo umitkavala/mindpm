@@ -73,7 +73,7 @@ export function seedTask(
     projectId,
     overrides.title ?? 'Test Task',
     overrides.description ?? null,
-    overrides.status ?? 'todo',
+    overrides.status ?? 'ready',
     overrides.priority ?? 'medium',
     overrides.tags ?? null,
     overrides.parent_task_id ?? null,

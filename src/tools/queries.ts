@@ -85,7 +85,7 @@ export function registerQueryTools(server: McpServer): void {
       const upcomingPriorities = db
         .prepare(
           `SELECT id, title, priority, status FROM tasks
-           WHERE project_id = ? AND status IN ('todo', 'in_progress')
+           WHERE project_id = ? AND status IN ('ready', 'claimed')
            ORDER BY CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 END
            LIMIT 10`
         )

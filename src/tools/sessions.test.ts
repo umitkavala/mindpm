@@ -70,13 +70,13 @@ describe('start_session', () => {
   it('includes task counts by status', async () => {
     const db = getTestDb();
     seedProject(db, { id: 'p1', name: 'P' });
-    seedTask(db, 'p1', { id: 't1', status: 'todo' });
-    seedTask(db, 'p1', { id: 't2', status: 'todo' });
-    seedTask(db, 'p1', { id: 't3', status: 'in_progress' });
+    seedTask(db, 'p1', { id: 't1', status: 'ready' });
+    seedTask(db, 'p1', { id: 't2', status: 'ready' });
+    seedTask(db, 'p1', { id: 't3', status: 'claimed' });
 
     const result = await callTool('start_session', { project: 'P' });
     const parsed = parseToolResult(result);
-    const todo = parsed.task_summary.find((s: any) => s.status === 'todo');
+    const todo = parsed.task_summary.find((s: any) => s.status === 'ready');
     expect(todo.count).toBe(2);
   });
 
@@ -193,7 +193,7 @@ describe('start_session - auto-close stale sessions', () => {
     // Create task in the past
     db.prepare(
       `INSERT INTO tasks (id, project_id, title, status, priority, created_at, updated_at) VALUES (?, ?, ?, ?, ?, datetime('now', '-2 days'), datetime('now', '-2 days'))`,
-    ).run('t1', 'p1', 'Old task', 'todo', 'medium');
+    ).run('t1', 'p1', 'Old task', 'ready', 'medium');
 
     // Create session after the task
     db.prepare(
@@ -226,7 +226,7 @@ describe('start_session - auto-close stale sessions', () => {
     seedProject(db, { id: 'p1', name: 'P' });
     seedTask(db, 'p1', { id: 't1', title: 'Task' });
     // Simulate an update (updated_at differs from created_at)
-    db.prepare("UPDATE tasks SET status = 'in_progress' WHERE id = ?").run('t1');
+    db.prepare("UPDATE tasks SET status = 'claimed' WHERE id = ?").run('t1');
 
     await callTool('start_session', { project: 'P' });
 
@@ -276,7 +276,7 @@ describe('start_session - recent activity', () => {
     // Create old task
     db.prepare(
       `INSERT INTO tasks (id, project_id, title, status, priority, created_at, updated_at) VALUES (?, ?, ?, ?, ?, datetime('now', '-3 days'), datetime('now', '-3 days'))`,
-    ).run('t-old', 'p1', 'Old task', 'todo', 'medium');
+    ).run('t-old', 'p1', 'Old task', 'ready', 'medium');
 
     // Create session after old task
     db.prepare(
@@ -301,7 +301,7 @@ describe('start_session - recent activity', () => {
     // Create task in the past
     db.prepare(
       `INSERT INTO tasks (id, project_id, title, status, priority, created_at, updated_at) VALUES (?, ?, ?, ?, ?, datetime('now', '-2 days'), datetime('now', '-2 days'))`,
-    ).run('t1', 'p1', 'Old task', 'todo', 'medium');
+    ).run('t1', 'p1', 'Old task', 'ready', 'medium');
 
     // Session after the task
     db.prepare(
@@ -320,9 +320,9 @@ describe('start_session - recent activity', () => {
     // Create task with an older created_at so the trigger-set updated_at will differ
     db.prepare(
       `INSERT INTO tasks (id, project_id, title, status, priority, created_at, updated_at) VALUES (?, ?, ?, ?, ?, datetime('now', '-1 hour'), datetime('now', '-1 hour'))`,
-    ).run('t1', 'p1', 'Task', 'todo', 'medium');
+    ).run('t1', 'p1', 'Task', 'ready', 'medium');
     // Update triggers updated_at to CURRENT_TIMESTAMP (now), which differs from created_at (-1 hour)
-    db.prepare("UPDATE tasks SET status = 'in_progress' WHERE id = ?").run('t1');
+    db.prepare("UPDATE tasks SET status = 'claimed' WHERE id = ?").run('t1');
 
     const result = await callTool('start_session', { project: 'P' });
     const parsed = parseToolResult(result);

@@ -71,14 +71,17 @@ export interface DeliveryMetrics {
   insights: string[];
 }
 
-export type TaskStatus = 'todo' | 'in_progress' | 'blocked' | 'in_review' | 'done' | 'cancelled';
+export type TaskStatus =
+  | 'backlog' | 'ready' | 'claimed' | 'blocked' | 'needs_verification' | 'verified' | 'needs_human' | 'done' | 'cancelled';
 export type TaskPriority = 'critical' | 'high' | 'medium' | 'low';
 
 export const COLUMNS: { status: TaskStatus; label: string }[] = [
-  { status: 'todo', label: 'Todo' },
-  { status: 'in_progress', label: 'In Progress' },
+  { status: 'backlog', label: 'Backlog' },
+  { status: 'ready', label: 'Ready' },
+  { status: 'claimed', label: 'Claimed' },
   { status: 'blocked', label: 'Blocked' },
-  { status: 'in_review', label: 'In Review' },
+  { status: 'needs_human', label: 'Needs Human' },
+  { status: 'needs_verification', label: 'Needs Verification' },
   { status: 'done', label: 'Done' },
   { status: 'cancelled', label: 'Cancelled' },
 ];

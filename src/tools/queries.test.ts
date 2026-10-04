@@ -74,7 +74,7 @@ describe('get_project_summary', () => {
   it('returns full summary with all sections', async () => {
     const db = getTestDb();
     seedProject(db, { id: 'p1', name: 'P' });
-    seedTask(db, 'p1', { id: 't1', status: 'todo', priority: 'high' });
+    seedTask(db, 'p1', { id: 't1', status: 'ready', priority: 'high' });
     seedTask(db, 'p1', { id: 't2', status: 'blocked', blocked_by: '["t1"]' });
     seedDecision(db, 'p1', { id: 'd1' });
     seedNote(db, 'p1', { id: 'n1' });
@@ -111,7 +111,7 @@ describe('get_blockers', () => {
   it('returns blocked tasks with enriched blocking task info', async () => {
     const db = getTestDb();
     seedProject(db, { id: 'p1', name: 'P' });
-    seedTask(db, 'p1', { id: 't1', title: 'Blocker', status: 'in_progress' });
+    seedTask(db, 'p1', { id: 't1', title: 'Blocker', status: 'claimed' });
     seedTask(db, 'p1', { id: 't2', title: 'Blocked', status: 'blocked', blocked_by: '["t1"]' });
 
     const result = await callTool('get_blockers', { project: 'P' });
@@ -136,7 +136,7 @@ describe('get_blockers', () => {
   it('returns empty blockers when none exist', async () => {
     const db = getTestDb();
     seedProject(db, { id: 'p1', name: 'P' });
-    seedTask(db, 'p1', { id: 't1', status: 'todo' });
+    seedTask(db, 'p1', { id: 't1', status: 'ready' });
 
     const result = await callTool('get_blockers', { project: 'P' });
     const parsed = parseToolResult(result);

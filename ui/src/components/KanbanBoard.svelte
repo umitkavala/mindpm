@@ -31,7 +31,7 @@
   // Modal state
   let showModal = $state(false);
   let editingTask: Task | null = $state(null);
-  let defaultStatus: TaskStatus = $state('todo');
+  let defaultStatus: TaskStatus = $state('ready');
 
   // Confirm dialog state
   let showConfirm = $state(false);
@@ -144,7 +144,7 @@
 
     if (e.key === 'n' || e.key === 'N') {
       e.preventDefault();
-      openCreateModal('todo');
+      openCreateModal('ready');
     } else if (e.key === '/') {
       e.preventDefault();
       focusSearch?.();
@@ -154,7 +154,7 @@
   // React to triggerNewTask from command palette
   $effect(() => {
     if (triggerNewTask) {
-      openCreateModal('todo');
+      openCreateModal('ready');
       onNewTaskTriggered?.();
     }
   });

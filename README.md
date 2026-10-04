@@ -96,7 +96,7 @@ Example output:
     "changed": [
       { "id": "a1b2c3d4", "title": "Add rate limiting", "from_status": "in_progress", "to_status": "done", "at": "2026-08-09T09:05:00.000Z" }
     ],
-    "in_progress_now": [{ "id": "e5f6a7b8", "title": "Webhook retry bug" }],
+    "claimed_now": [{ "id": "e5f6a7b8", "title": "Webhook retry bug" }],
     "next_suggested": [{ "id": "c9d0e1f2", "title": "Write API docs", "priority": "high" }]
   },
   "blockers": [],

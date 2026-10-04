@@ -111,10 +111,10 @@ describe('get_delivery_metrics', () => {
     seedTask(db, 'p1', { id: 't1' });
     seedTask(db, 'p1', { id: 't2' });
     // t1 got blocked then unblocked
-    seedHistoryEvent('t1', 'in_progress', 'blocked', 10, 'h1');
-    seedHistoryEvent('t1', 'blocked', 'in_progress', 8, 'h2');
+    seedHistoryEvent('t1', 'claimed', 'blocked', 10, 'h1');
+    seedHistoryEvent('t1', 'blocked', 'claimed', 8, 'h2');
     // t2 had a status change but no block
-    seedHistoryEvent('t2', 'todo', 'in_progress', 5, 'h3');
+    seedHistoryEvent('t2', 'ready', 'claimed', 5, 'h3');
 
     const result = await callTool('get_delivery_metrics', { project: 'P', days: 30 });
     const parsed = parseToolResult(result);
@@ -127,8 +127,8 @@ describe('get_delivery_metrics', () => {
     seedProject(db, { id: 'p1', name: 'P' });
     seedTask(db, 'p1', { id: 't1' });
     // blocked for ~2 days
-    seedHistoryEvent('t1', 'in_progress', 'blocked', 10, 'h1');
-    seedHistoryEvent('t1', 'blocked', 'in_progress', 8, 'h2');
+    seedHistoryEvent('t1', 'claimed', 'blocked', 10, 'h1');
+    seedHistoryEvent('t1', 'blocked', 'claimed', 8, 'h2');
 
     const result = await callTool('get_delivery_metrics', { project: 'P', days: 30 });
     const parsed = parseToolResult(result);
