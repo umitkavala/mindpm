@@ -134,10 +134,11 @@ export function registerTaskTools(server: McpServer): void {
         addBlockedBy: z.array(z.string()).optional().describe('Task IDs that block this task (appended to existing list)'),
         verification: verificationSchema.optional(),
         branch: z.string().optional().describe('Expected branch'),
+        criteria: z.array(z.string()).optional().describe("Acceptance criteria this task is responsible for (replaces the list). Must belong to the task's spec"),
         actor: z.string().optional().describe('Who is making the change, e.g. human:umit. Required for status changes'),
       },
     },
-    async ({ task_id, title, description, status, priority, tags, blocked_by, addBlockedBy, verification, branch, actor }) => guarded(() => {
+    async ({ task_id, title, description, status, priority, tags, blocked_by, addBlockedBy, verification, branch, criteria, actor }) => guarded(() => {
       const db = getDb();
       const resolvedId = resolveTaskId(task_id);
       if (!resolvedId) {
@@ -167,7 +168,13 @@ export function registerTaskTools(server: McpServer): void {
       }
       if (newBlockers !== null) { updates.push('blocked_by = ?'); params.push(JSON.stringify(newBlockers)); }
 
-      if (updates.length === 0 && status === undefined) {
+      let linked: { id: string }[] | null = null;
+      if (criteria !== undefined) {
+        if (!existing.spec_id) throw new ToolError('invalid_criteria', 'criteria require the task to be linked to a spec.');
+        linked = resolveCriteria(db, resolveSpec(db, existing.spec_id), criteria);
+      }
+
+      if (updates.length === 0 && status === undefined && linked === null) {
         return { content: [{ type: 'text' as const, text: 'No updates provided.' }], isError: true };
       }
 
@@ -175,6 +182,11 @@ export function registerTaskTools(server: McpServer): void {
       db.transaction(() => {
         if (updates.length > 0) {
           db.prepare(`UPDATE tasks SET ${updates.join(', ')} WHERE id = ?`).run(...params, resolvedId);
+        }
+        if (linked !== null) {
+          db.prepare('DELETE FROM task_criteria WHERE task_id = ?').run(resolvedId);
+          const link = db.prepare('INSERT INTO task_criteria (task_id, criterion_id) VALUES (?, ?)');
+          for (const c of linked) link.run(resolvedId, c.id);
         }
         if (status !== undefined) {
           warning = changeStatusAsHuman(db, resolvedId, status, actor);

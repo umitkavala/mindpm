@@ -2,26 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod/v4';
 import { getDb, resolveProjectOrDefault, resolveProjectError } from '../db/queries.js';
 import { maybeAutoSession } from './auto-session.js';
-import type Database from 'better-sqlite3';
-
-// True when the FTS5 virtual tables exist (created by setupFts). When false,
-// search falls back to LIKE scans.
-function ftsReady(db: Database.Database): boolean {
-  try {
-    return !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='tasks_fts'").get();
-  } catch {
-    return false;
-  }
-}
-
-// Turn a free-text query into an FTS5 MATCH expression: each alphanumeric token
-// becomes a prefix term, combined with implicit AND. Returns null when the query
-// has no usable tokens (caller then falls back to LIKE).
-function buildFtsMatch(query: string): string | null {
-  const tokens = query.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
-  if (tokens.length === 0) return null;
-  return tokens.map((t) => `"${t}"*`).join(' ');
-}
+import { buildFtsMatch, ftsReady } from '../utils/fts.js';
 
 export function registerQueryTools(server: McpServer): void {
   server.registerTool(
