@@ -1,9 +1,45 @@
 import Database from 'better-sqlite3';
-import { existsSync, mkdirSync, writeFileSync } from 'fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { homedir } from 'os';
-import { createSchema, runMigrations } from './schema.js';
-import { AGENT_INSTRUCTIONS } from '../tools/meta.js';
+import { createSchema, needsPhase1Migration, runMigrations } from './schema.js';
+import { AGENT_INSTRUCTIONS, AGENT_INSTRUCTIONS_VERSION } from '../tools/meta.js';
+
+const MARKER_RE = /^<!-- mindpm agent instructions v(\S+) -->/;
+
+// Keep AGENT.md in step with the server. The first line carries the
+// instructions version; on a mismatch the file is rewritten, and the old copy
+// is kept as AGENT.md.bak-<old version> in case the user edited it.
+export function syncAgentInstructions(path: string): 'created' | 'updated' | 'current' {
+  const content = `<!-- mindpm agent instructions v${AGENT_INSTRUCTIONS_VERSION} -->\n\n${AGENT_INSTRUCTIONS}`;
+  if (!existsSync(path)) {
+    writeFileSync(path, content, 'utf8');
+    return 'created';
+  }
+  const old = readFileSync(path, 'utf8');
+  const version = old.match(MARKER_RE)?.[1];
+  if (version === AGENT_INSTRUCTIONS_VERSION) return 'current';
+  const backup = `${path}.bak-${version ?? 'pre-2.0.0'}`;
+  if (!existsSync(backup)) copyFileSync(path, backup);
+  writeFileSync(path, content, 'utf8');
+  return 'updated';
+}
+
+// Copy the database before the Phase 1 migration rebuilds the tasks table.
+// VACUUM INTO writes a consistent snapshot even in WAL mode with other
+// connections open. An existing backup is never overwritten: the first one
+// is the pre-migration state. If the copy fails, the migration doesn't run.
+export function backupBeforeMigration(database: Database.Database, dbPath: string): string | null {
+  if (dbPath === ':memory:' || !needsPhase1Migration(database)) return null;
+  const backup = `${dbPath}.pre-2.0.0`;
+  if (existsSync(backup)) return backup;
+  try {
+    database.exec(`VACUUM INTO '${backup.replace(/'/g, "''")}'`);
+  } catch (err) {
+    throw new Error(`Could not back up the database to ${backup} before migrating, so the migration did not run: ${err}`);
+  }
+  return backup;
+}
 
 let db: Database.Database | null = null;
 
@@ -21,10 +57,9 @@ export function ensureDbDirectory(): void {
   mkdirSync(dir, { recursive: true });
 
   const agentMdPath = resolve(dir, 'AGENT.md');
-  if (!existsSync(agentMdPath)) {
-    writeFileSync(agentMdPath, AGENT_INSTRUCTIONS, 'utf8');
-    process.stderr.write(`[mindpm] Created ${agentMdPath}\n`);
-  }
+  const result = syncAgentInstructions(agentMdPath);
+  if (result === 'created') process.stderr.write(`[mindpm] Created ${agentMdPath}\n`);
+  if (result === 'updated') process.stderr.write(`[mindpm] Updated ${agentMdPath} (previous copy kept alongside as .bak)\n`);
 }
 
 export function getDb(): Database.Database {
@@ -45,6 +80,8 @@ export function getDb(): Database.Database {
   db.pragma('busy_timeout = 5000');
 
   try {
+    const backup = backupBeforeMigration(db, dbPath);
+    if (backup) process.stderr.write(`[mindpm] Pre-migration backup: ${backup}\n`);
     process.stderr.write('[mindpm] Running createSchema...\n');
     createSchema(db);
     process.stderr.write('[mindpm] Running runMigrations...\n');
@@ -52,6 +89,9 @@ export function getDb(): Database.Database {
     process.stderr.write('[mindpm] Database ready.\n');
   } catch (err) {
     process.stderr.write(`[mindpm] Database init failed: ${err}\n`);
+    // Don't cache a half-initialized connection: the next call retries.
+    db.close();
+    db = null;
     throw err;
   }
 

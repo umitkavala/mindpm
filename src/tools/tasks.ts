@@ -97,7 +97,7 @@ export function registerTaskTools(server: McpServer): void {
         const link = db.prepare('INSERT INTO task_criteria (task_id, criterion_id) VALUES (?, ?)');
         for (const c of linked) link.run(id, c.id);
         recordTaskHistory(id, 'created', null, JSON.stringify({ status, priority: priority ?? 'medium' }), actor ?? null);
-      })();
+      }).immediate();
 
       const short_id = taskKey(db, id);
       return {
@@ -135,10 +135,11 @@ export function registerTaskTools(server: McpServer): void {
         verification: verificationSchema.optional(),
         branch: z.string().optional().describe('Expected branch'),
         criteria: z.array(z.string()).optional().describe("Acceptance criteria this task is responsible for (replaces the list). Must belong to the task's spec"),
-        actor: z.string().optional().describe('Who is making the change, e.g. human:umit. Required for status changes'),
+        actor: z.string().optional().describe('Who is making the change, e.g. human:umit, or your own agent id with on_behalf_of. Required for status changes'),
+        on_behalf_of: z.string().optional().describe('When a human explicitly asked you (an agent) to change status: their id, e.g. human:umit. Recorded with your agent id'),
       },
     },
-    async ({ task_id, title, description, status, priority, tags, blocked_by, addBlockedBy, verification, branch, criteria, actor }) => guarded(() => {
+    async ({ task_id, title, description, status, priority, tags, blocked_by, addBlockedBy, verification, branch, criteria, actor, on_behalf_of }) => guarded(() => {
       const db = getDb();
       const resolvedId = resolveTaskId(task_id);
       if (!resolvedId) {
@@ -148,7 +149,7 @@ export function registerTaskTools(server: McpServer): void {
       if (!existing) {
         return { content: [{ type: 'text' as const, text: `Task "${task_id}" not found.` }], isError: true };
       }
-      if (actor !== undefined && !parseActor(actor)) return errorResult('invalid_actor', ACTOR_FORMAT_HINT);
+      if (actor !== undefined && !parseActor(actor, on_behalf_of)) return errorResult('invalid_actor', ACTOR_FORMAT_HINT);
       // Validate the status change up front so a rejected change writes nothing.
       if (status !== undefined) normalizeStatus(status);
 
@@ -189,12 +190,12 @@ export function registerTaskTools(server: McpServer): void {
           for (const c of linked) link.run(resolvedId, c.id);
         }
         if (status !== undefined) {
-          warning = changeStatusAsHuman(db, resolvedId, status, actor);
+          warning = changeStatusAsHuman(db, resolvedId, status, actor, on_behalf_of);
         } else if (newBlockers && openBlockers(db, newBlockers).length > 0 && ['ready', 'backlog'].includes(existing.status)) {
           // Naming an open blocker on work nobody has started blocks it.
-          setStatus(db, resolvedId, existing.status, 'blocked', actor ?? 'system');
+          setStatus(db, resolvedId, existing.status, 'blocked', parseActor(actor, on_behalf_of) ?? 'system');
         }
-      })();
+      }).immediate();
 
       return {
         content: [{

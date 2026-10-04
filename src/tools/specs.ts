@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod/v4';
 import type Database from 'better-sqlite3';
 import { getDb, generateId, resolveProjectOrDefault, resolveProjectError } from '../db/queries.js';
-import { ACTOR_FORMAT_HINT, openBlockers, parseActor, parseIdList, setStatus, ToolError, type Actor } from '../domain/lifecycle.js';
+import { ACTOR_FORMAT_HINT, actorLabel, openBlockers, parseActor, parseIdList, setStatus, ToolError, type Actor } from '../domain/lifecycle.js';
 import { attemptsLeft, endAttempt } from '../domain/attempts.js';
 import {
   assertCanApprove, assertCanAuthor, criteriaOf, criterionKey, parseJsonArray, resolveSpec, specContentHash, specKey,
@@ -23,8 +23,11 @@ const SPEC_FIELDS = ['title', 'objective', 'why', 'approach', 'constraints', 'ou
 const RISK_ORDER: RiskLevel[] = ['low', 'medium', 'high'];
 const stricter = (a: RiskLevel, b: RiskLevel): RiskLevel => (RISK_ORDER.indexOf(a) >= RISK_ORDER.indexOf(b) ? a : b);
 
-function requireActor(raw: string): Actor {
-  const actor = parseActor(raw);
+const ON_BEHALF_OF = z.string().optional()
+  .describe('When a human explicitly asked you (an agent) to do this: their id, e.g. human:umit. You cannot approve a spec you authored');
+
+function requireActor(raw: string, onBehalfOf?: string): Actor {
+  const actor = parseActor(raw, onBehalfOf);
   if (!actor) throw new ToolError('invalid_actor', ACTOR_FORMAT_HINT);
   return actor;
 }
@@ -43,9 +46,16 @@ function projectIdFor(project: string | undefined): string | undefined {
   return resolved.id;
 }
 
+// A delegate gets a human's approval rights, but not over its own spec.
+function assertNotOwnSpec(actor: Actor, spec: SpecRow): void {
+  if (actor.onBehalfOf && spec.created_by === actor.id) {
+    throw new ToolError('forbidden', `${actor.id} authored ${specKey(spec)} and cannot approve it on behalf of ${actor.onBehalfOf}.`);
+  }
+}
+
 // Release a spec's backlog tasks once it is approved: ready when nothing they
 // depend on is open, blocked otherwise.
-function releaseBacklog(db: Database.Database, spec: SpecRow, actor: string): string[] {
+function releaseBacklog(db: Database.Database, spec: SpecRow, actor: Actor): string[] {
   const madeReady: string[] = [];
   for (const t of taskKeyRows(db, spec.id).filter(t => t.status === 'backlog')) {
     const open = openBlockers(db, parseIdList(t.blocked_by));
@@ -102,7 +112,7 @@ export function registerSpecTools(server: McpServer): void {
           insert.run(cid, id, i + 1, c.statement, c.verify_kind, c.verify_ref ?? null);
           return { id: cid, key: `AC-${seq}.${i + 1}` };
         });
-      })();
+      }).immediate();
       const spec = resolveSpec(db, id);
       const warnings = criteria
         .map((c, i) => (c.verify_kind === 'test' && !c.verify_ref ? `${created[i].key} is verified by a test but names none in verify_ref.` : null))
@@ -122,6 +132,7 @@ export function registerSpecTools(server: McpServer): void {
         spec_id: z.string().describe('Spec id or key like "SPEC-12"'),
         project: z.string().optional().describe('Project, needed only when a spec key exists in several projects'),
         actor: z.string(),
+        on_behalf_of: ON_BEHALF_OF,
         expected_version: z.number().int().describe('The version you last read'),
         title: z.string().min(1).optional(),
         objective: z.string().min(1).optional(),
@@ -136,10 +147,11 @@ export function registerSpecTools(server: McpServer): void {
         criteria_remove: z.array(z.number().int()).optional().describe('Criterion numbers (seq) to remove'),
       },
     },
-    async ({ spec_id, project, actor, expected_version, criteria_upsert, criteria_remove, ...fields }) => guarded(() => {
+    async ({ spec_id, project, actor, on_behalf_of, expected_version, criteria_upsert, criteria_remove, ...fields }) => guarded(() => {
       const db = getDb();
-      const who = requireActor(actor);
+      const who = requireActor(actor, on_behalf_of);
       const spec = resolveSpec(db, spec_id, projectIdFor(project));
+      if (spec.status === 'approved') assertNotOwnSpec(who, spec);
       if (spec.status === 'superseded' || spec.status === 'cancelled') {
         throw new ToolError('invalid_state', `${specKey(spec)} is ${spec.status} and can no longer be edited.`);
       }
@@ -227,14 +239,16 @@ export function registerSpecTools(server: McpServer): void {
         spec_id: z.string(),
         project: z.string().optional(),
         actor: z.string(),
+        on_behalf_of: ON_BEHALF_OF,
       },
     },
-    async ({ spec_id, project, actor }) => guarded(() => {
+    async ({ spec_id, project, actor, on_behalf_of }) => guarded(() => {
       const db = getDb();
-      const who = requireActor(actor);
+      const who = requireActor(actor, on_behalf_of);
       const spec = resolveSpec(db, spec_id, projectIdFor(project));
       if (spec.status !== 'draft') throw new ToolError('invalid_state', `${specKey(spec)} is ${spec.status}; only drafts can be approved.`);
       assertCanApprove(who, spec.risk_level);
+      assertNotOwnSpec(who, spec);
 
       const tasksMadeReady = db.transaction(() => {
         const current = resolveSpec(db, spec.id);
@@ -246,8 +260,8 @@ export function registerSpecTools(server: McpServer): void {
         db.prepare(
           `UPDATE specs SET status = 'approved', version = version + ?, approved_hash = ?, approved_by = ?, approved_at = CURRENT_TIMESTAMP
            WHERE id = ?`,
-        ).run(bump, hash, who.id, spec.id);
-        return releaseBacklog(db, resolveSpec(db, spec.id), who.id);
+        ).run(bump, hash, actorLabel(who), spec.id);
+        return releaseBacklog(db, resolveSpec(db, spec.id), who);
       }).immediate();
 
       // After commit: a file error must never roll back the approval.
@@ -275,12 +289,13 @@ export function registerSpecTools(server: McpServer): void {
         replacement_spec_id: z.string(),
         project: z.string().optional(),
         actor: z.string(),
+        on_behalf_of: ON_BEHALF_OF,
         reason: z.string().min(1),
       },
     },
-    async ({ spec_id, replacement_spec_id, project, actor, reason }) => guarded(() => {
+    async ({ spec_id, replacement_spec_id, project, actor, on_behalf_of, reason }) => guarded(() => {
       const db = getDb();
-      const who = requireActor(actor);
+      const who = requireActor(actor, on_behalf_of);
       const projectId = projectIdFor(project);
       const spec = resolveSpec(db, spec_id, projectId);
       const replacement = resolveSpec(db, replacement_spec_id, projectId ?? spec.project_id);
@@ -308,7 +323,7 @@ export function registerSpecTools(server: McpServer): void {
               attemptId = a.id;
             }
           }
-          setStatus(db, t.task_id, t.status, 'cancelled', who.id, attemptId);
+          setStatus(db, t.task_id, t.status, 'cancelled', who, attemptId);
           keys.push(t.key);
         }
         return keys;

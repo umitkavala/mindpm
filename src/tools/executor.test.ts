@@ -367,6 +367,62 @@ describe('review_task', () => {
   });
 });
 
+describe('acting on behalf of a human', () => {
+  it('gives an agent human permissions but records the agent and who asked', async () => {
+    const { task } = await readyTask();
+    const a = await call('claim_task', { task_id: task.task_id, actor: 'agent:cli-a' });
+    await submit(a);
+    const out = await call('review_task', { task_id: task.task_id, actor: 'agent:assistant', on_behalf_of: 'human:umit', decision: 'accept' });
+    expect(out).toEqual({ status: 'done' });
+    const row = getTestDb().prepare("SELECT actor, on_behalf_of FROM task_history WHERE task_id = ? AND new_value = 'done'").get(task.task_id);
+    expect(row).toEqual({ actor: 'agent:assistant', on_behalf_of: 'human:umit' });
+    const attempt = getTestDb().prepare('SELECT reviewed_by FROM attempts WHERE task_id = ?').get(task.task_id) as any;
+    expect(attempt.reviewed_by).toBe('agent:assistant for human:umit');
+  });
+
+  it('never lets an agent act on behalf of a human on work it holds or submitted', async () => {
+    const { task } = await readyTask();
+    const a = await call('claim_task', { task_id: task.task_id, actor: 'agent:cli-a' });
+    const mid = await call('update_task', { task_id: task.task_id, status: 'needs_human', actor: 'agent:cli-a', on_behalf_of: 'human:umit' });
+    expect(mid.error).toBe('forbidden');
+    expect(status(task.task_id)).toBe('claimed');
+
+    await submit(a);
+    const accept = await call('review_task', { task_id: task.task_id, actor: 'agent:cli-a', on_behalf_of: 'human:umit', decision: 'accept' });
+    expect(accept.error).toBe('forbidden');
+    const done = await call('update_task', { task_id: task.task_id, status: 'done', actor: 'agent:cli-a', on_behalf_of: 'human:umit' });
+    expect(done.error).toBe('forbidden');
+    expect(status(task.task_id)).toBe('needs_verification');
+  });
+
+  it('rejects malformed delegation', async () => {
+    seedTask(getTestDb(), 'p1', { id: 't' });
+    for (const args of [
+      { actor: 'human:umit', on_behalf_of: 'human:ana' },
+      { actor: 'agent:assistant', on_behalf_of: 'agent:architect' },
+    ]) {
+      expect((await call('update_task', { task_id: 't', status: 'blocked', ...args })).error).toBe('invalid_actor');
+    }
+  });
+
+  it('lets an assistant approve a spec for a human, but not a spec it wrote', async () => {
+    await call('create_spec', SPEC);
+    const own = await call('approve_spec', { spec_id: 'SPEC-1', actor: 'agent:architect', on_behalf_of: 'human:umit' });
+    expect(own.error).toBe('forbidden');
+    const out = await call('approve_spec', { spec_id: 'SPEC-1', actor: 'agent:assistant', on_behalf_of: 'human:umit' });
+    expect(out.status).toBe('approved');
+    expect((await call('get_spec', { spec_id: 'SPEC-1' })).approved_by).toBe('agent:assistant for human:umit');
+  });
+
+  it('keeps claims as the agent\'s own: claim_task ignores on_behalf_of', async () => {
+    const { task } = await readyTask();
+    const out = await call('claim_task', { task_id: task.task_id, actor: 'agent:assistant', on_behalf_of: 'human:umit' });
+    expect(out.attempt_no).toBe(1);
+    // on_behalf_of is not a claim_task parameter: the claim is the agent's own.
+    expect(getTestDb().prepare('SELECT claimed_by FROM tasks WHERE id = ?').get(task.task_id)).toEqual({ claimed_by: 'agent:assistant' });
+  });
+});
+
 describe('pick_task', () => {
   it('orders by priority then age and skips what cannot be worked', async () => {
     const db = getTestDb();

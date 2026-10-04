@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod/v4';
 import { getDb, resolveTaskId } from '../db/queries.js';
 import {
-  ACTOR_FORMAT_HINT, canTransition, openBlockers, parseActor, parseIdList, recordHistory, releasedStatus, setStatus, ToolError,
+  ACTOR_FORMAT_HINT, actorLabel, assertDelegateMayAct, canTransition, openBlockers, parseActor, parseIdList, recordHistory, releasedStatus, setStatus, ToolError,
   type TaskStatus,
 } from '../domain/lifecycle.js';
 import { afterUsedAttempt, attemptsLeft, attemptsUsed, expireLeases } from '../domain/attempts.js';
@@ -31,10 +31,11 @@ export function registerReviewTools(server: McpServer): void {
         actor: z.string(),
         decision: z.enum(['accept', 'reject']),
         findings: z.string().max(1500).optional().describe('Required on reject: what failed and what to change'),
+        on_behalf_of: z.string().optional().describe('When a human explicitly asked you (an agent) to review: their id. You still cannot review work you submitted or hold'),
       },
     },
-    async ({ task_id, actor, decision, findings }) => guarded(() => {
-      const who = parseActor(actor);
+    async ({ task_id, actor, decision, findings, on_behalf_of }) => guarded(() => {
+      const who = parseActor(actor, on_behalf_of);
       if (!who) return errorResult('invalid_actor', ACTOR_FORMAT_HINT);
       if (who.kind !== 'human' && who.kind !== 'reviewer') {
         throw new ToolError('forbidden', `${who.id} cannot review. Use human:* or agent:reviewer.`);
@@ -58,14 +59,15 @@ export function registerReviewTools(server: McpServer): void {
           "SELECT id, actor FROM attempts WHERE task_id = ? AND outcome = 'submitted' ORDER BY attempt_no DESC LIMIT 1",
         ).get(task.id) as { id: string; actor: string } | undefined;
         if (attempt?.actor === who.id) throw new ToolError('forbidden', 'You submitted this work; someone else must review it.');
+        assertDelegateMayAct(db, who, task.id);
 
         if (attempt) {
           db.prepare('UPDATE attempts SET review_decision = ?, review_findings = ?, reviewed_by = ? WHERE id = ?')
-            .run(decision, findings ?? null, who.id, attempt.id);
+            .run(decision, findings ?? null, actorLabel(who), attempt.id);
         }
         const to: TaskStatus = decision === 'accept' ? 'done' : afterUsedAttempt(db, task);
         if (!canTransition(task.status, to, who.kind)) throw new ToolError('illegal_transition', `${task.status} → ${to} is not allowed for ${who.id}.`);
-        setStatus(db, task.id, task.status, to, who.id, attempt?.id ?? null);
+        setStatus(db, task.id, task.status, to, who, attempt?.id ?? null);
         return to;
       }).immediate();
       return jsonResult({ status });
@@ -84,19 +86,21 @@ export function registerReviewTools(server: McpServer): void {
         actor: z.string(),
         action: z.enum(['requeue', 'cancel', 'revise_spec']),
         note: z.string().min(1).max(1500).describe('The answer or reason. Recorded in the task history'),
+        on_behalf_of: z.string().optional().describe("When a human explicitly gave you (an agent) this answer: their id"),
       },
     },
-    async ({ task_id, actor, action, note }) => guarded(() => {
-      const who = parseActor(actor);
+    async ({ task_id, actor, action, note, on_behalf_of }) => guarded(() => {
+      const who = parseActor(actor, on_behalf_of);
       if (!who) return errorResult('invalid_actor', ACTOR_FORMAT_HINT);
-      if (who.kind !== 'human') throw new ToolError('forbidden', 'Only a human (human:*) can resolve needs_human.');
+      if (who.kind !== 'human') throw new ToolError('forbidden', 'Only a human (human:*, or an agent with on_behalf_of) can resolve needs_human.');
 
       const db = getDb();
       expireLeases(db);
       const result = db.transaction(() => {
         const task = requireTask(task_id);
         if (task.status !== 'needs_human') throw new ToolError('illegal_transition', `This task is ${task.status}, not needs_human.`);
-        recordHistory(db, task.id, 'resolution', null, JSON.stringify({ action, note }), who.id);
+        assertDelegateMayAct(db, who, task.id);
+        recordHistory(db, task.id, 'resolution', null, JSON.stringify({ action, note }), who);
 
         let to: TaskStatus;
         let specNote: string | undefined;
@@ -119,7 +123,7 @@ export function registerReviewTools(server: McpServer): void {
           }
           to = openBlockers(db, parseIdList(task.blocked_by)).length > 0 ? 'blocked' : releasedStatus(db, task.spec_id);
         }
-        setStatus(db, task.id, 'needs_human', to, who.id);
+        setStatus(db, task.id, 'needs_human', to, who);
         const fresh = db.prepare('SELECT id, max_attempts FROM tasks WHERE id = ?').get(task.id) as { id: string; max_attempts: number | null };
         return { status: to, attempts_left: attemptsLeft(db, fresh), ...(specNote ? { note: specNote } : {}) };
       }).immediate();

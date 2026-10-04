@@ -127,7 +127,7 @@ backlog ──approve_spec──► ready ──claim_task──► claimed ─�
                      blocked ◄── dependency          needs_human ◄── spec_gap, design_conflict, escalate, attempts exhausted
 ```
 
-Phases inside a run (implementing, testing, fixing) are heartbeat events, not statuses. Agents can't write status; only a human (`human:<name>`) can, through `update_task` or the Kanban board. When a task reaches done, blocked tasks whose blockers are all done move to ready.
+Phases inside a run (implementing, testing, fixing) are heartbeat events, not statuses. Agents can't write status; only a human (`human:<name>`) can, through `update_task` or the Kanban board. An agent that a human explicitly asks to make such a change passes its own id with `on_behalf_of: "human:<name>"`: it gets the human's permissions, history records both, and it is refused on work the agent claimed or submitted itself. When a task reaches done, blocked tasks whose blockers are all done move to ready.
 
 **Specs.** An architect (`agent:architect` or a human) writes a spec with acceptance criteria and a risk level, then links tasks to it. Tasks wait in backlog until the spec is approved. Medium and high risk need a human to approve and to accept the work; `agent:reviewer` may accept low-risk work. Approval writes `specs/SPEC-<n>.md` into the repo for a human to commit. The database stays the source of truth.
 
@@ -331,7 +331,7 @@ Default: `~/.mindpm/memory.db`
 
 Override with `MINDPM_DB_PATH` or `PROJECT_MEMORY_DB_PATH` environment variable.
 
-Database and tables are created automatically on first run.
+Database and tables are created automatically on first run. Before the 2.0.0 migration rewrites the tasks table, the server saves a copy next to the database as `<db>.pre-2.0.0`.
 
 ## Development
 

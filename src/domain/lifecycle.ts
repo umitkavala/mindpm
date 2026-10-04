@@ -17,23 +17,58 @@ export const LEGACY_STATUS_ALIASES: Record<string, TaskStatus> = {
 };
 
 export type ActorKind = 'human' | 'architect' | 'reviewer' | 'executor';
-export interface Actor { id: string; kind: ActorKind }
+// onBehalfOf marks a delegate: an agent doing what a named human asked. It
+// gets a human's permissions, but the record keeps the agent's own id.
+export interface Actor { id: string; kind: ActorKind; onBehalfOf?: string }
+
+const ACTOR_RE = /^(human|agent):([A-Za-z0-9._-]+)$/;
 
 // human:<name>, agent:architect, agent:reviewer, agent:cli-<id>. Any other
-// agent:<name> is treated as an executor. Identity is declared, not
-// authenticated: mindpm is local-only for now.
-export function parseActor(raw: string | undefined | null): Actor | null {
+// agent:<name> is treated as an executor. With onBehalfOf (a human:<name>),
+// an agent id becomes a delegate with human permissions. Identity is
+// declared, not authenticated: mindpm is local-only for now.
+export function parseActor(raw: string | undefined | null, onBehalfOf?: string | null): Actor | null {
   if (!raw) return null;
-  const m = raw.match(/^(human|agent):([A-Za-z0-9._-]+)$/);
+  const m = raw.match(ACTOR_RE);
   if (!m) return null;
   const [, type, name] = m;
+  if (onBehalfOf) {
+    if (type !== 'agent' || !/^human:[A-Za-z0-9._-]+$/.test(onBehalfOf)) return null;
+    return { id: raw, kind: 'human', onBehalfOf };
+  }
   if (type === 'human') return { id: raw, kind: 'human' };
   if (name === 'architect') return { id: raw, kind: 'architect' };
   if (name === 'reviewer') return { id: raw, kind: 'reviewer' };
   return { id: raw, kind: 'executor' };
 }
 
-export const ACTOR_FORMAT_HINT = 'Actor must look like human:<name>, agent:architect, agent:reviewer or agent:cli-<id>.';
+export const ACTOR_FORMAT_HINT =
+  'Actor must look like human:<name>, agent:architect, agent:reviewer or agent:cli-<id>. ' +
+  'on_behalf_of, when given, must be human:<name> and the actor an agent:* id.';
+
+// How an actor is written into single text fields (approved_by, reviewed_by).
+export function actorLabel(actor: Actor): string {
+  return actor.onBehalfOf ? `${actor.id} for ${actor.onBehalfOf}` : actor.id;
+}
+
+// A delegate acts for a human, but never on work it owns: not while it holds
+// the task's live claim, and not on a submission it made itself. This is what
+// stops an executor from approving its own work by asking on a human's behalf.
+export function assertDelegateMayAct(db: Database.Database, actor: Actor, taskId: string): void {
+  if (!actor.onBehalfOf) return;
+  const task = db.prepare('SELECT claimed_by, status FROM tasks WHERE id = ?').get(taskId) as { claimed_by: string | null; status: string } | undefined;
+  if (task?.status === 'claimed' && task.claimed_by === actor.id) {
+    throw new ToolError('forbidden', `${actor.id} holds the live claim on this task and cannot act on it on behalf of ${actor.onBehalfOf}.`);
+  }
+  const submitted = db.prepare(
+    "SELECT actor FROM attempts WHERE task_id = ? AND outcome = 'submitted' ORDER BY attempt_no DESC LIMIT 1",
+  ).get(taskId) as { actor: string } | undefined;
+  if (task?.status === 'needs_verification' && submitted?.actor === actor.id) {
+    throw new ToolError('forbidden', `${actor.id} submitted this work and cannot accept or move it on behalf of ${actor.onBehalfOf}.`);
+  }
+}
+
+export type ActorRef = string | Actor | null;
 
 // Who causes a transition. 'system' covers server-side effects: lease expiry,
 // spec approval releasing backlog tasks, blockers finishing.
@@ -81,12 +116,14 @@ export function recordHistory(
   event: string,
   oldValue: string | null,
   newValue: string | null,
-  actor: string | null = null,
+  actor: ActorRef = null,
   attemptId: string | null = null,
 ): void {
+  const id = typeof actor === 'string' || actor === null ? actor : actor.id;
+  const onBehalfOf = actor && typeof actor !== 'string' ? actor.onBehalfOf ?? null : null;
   db.prepare(
-    'INSERT INTO task_history (id, task_id, event, old_value, new_value, actor, attempt_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
-  ).run(generateId(), taskId, event, oldValue, newValue, actor, attemptId);
+    'INSERT INTO task_history (id, task_id, event, old_value, new_value, actor, on_behalf_of, attempt_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+  ).run(generateId(), taskId, event, oldValue, newValue, id, onBehalfOf, attemptId);
 }
 
 // Write a status change, its history row and its side effects. Callers have
@@ -96,7 +133,7 @@ export function setStatus(
   taskId: string,
   from: string,
   to: TaskStatus,
-  actor: string,
+  actor: Exclude<ActorRef, null>,
   attemptId: string | null = null,
 ): void {
   const extra: string[] = [];

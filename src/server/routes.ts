@@ -245,7 +245,7 @@ const updateTask: RouteHandler = async (req, res, params) => {
       if (body.title !== undefined && body.title !== existing.title) {
         recordTaskHistory(resolvedId, 'title_changed', existing.title as string, body.title as string, UI_ACTOR);
       }
-    })();
+    }).immediate();
   } catch (e) {
     if (e instanceof ToolError) {
       sendJson(res, e.code === 'not_found' ? 404 : 409, { error: e.message, code: e.code });
@@ -287,7 +287,7 @@ const deleteTask: RouteHandler = async (_req, res, params) => {
     deleteRows(taskId);
   });
 
-  deleteTransaction(resolvedId);
+  deleteTransaction.immediate(resolvedId);
   sendJson(res, 200, { message: 'Task deleted' });
 };
 

@@ -157,4 +157,29 @@ describe('get_delivery_metrics', () => {
     expect(parsed.throughput.tasks_completed).toBe(1);
     expect(parsed.period).toBe('last 7 days');
   });
+
+  it('reads history the same across the 2.0.0 status rename', async () => {
+    // Two tasks with identical shapes: one recorded with pre-2.0.0 names,
+    // one with the new ones. Each spends 2 days blocked and 4 days total.
+    const db = getTestDb();
+    seedProject(db, { id: 'p1', name: 'P' });
+    seedCompletedTask('p1', 4, 1, 'old');
+    seedCompletedTask('p1', 4, 1, 'new');
+    seedHistoryEvent('old', 'todo', 'in_progress', 5, 'o1');
+    seedHistoryEvent('old', 'in_progress', 'blocked', 4, 'o2');
+    seedHistoryEvent('old', 'blocked', 'in_progress', 2, 'o3');
+    seedHistoryEvent('old', 'in_progress', 'in_review', 1.5, 'o4');
+    seedHistoryEvent('old', 'in_review', 'done', 1, 'o5');
+    seedHistoryEvent('new', 'ready', 'claimed', 5, 'n1');
+    seedHistoryEvent('new', 'claimed', 'blocked', 4, 'n2');
+    seedHistoryEvent('new', 'blocked', 'ready', 2, 'n3');
+    seedHistoryEvent('new', 'ready', 'needs_verification', 1.5, 'n4');
+    seedHistoryEvent('new', 'needs_verification', 'done', 1, 'n5');
+
+    const parsed = parseToolResult(await callTool('get_delivery_metrics', { project: 'P' }));
+    expect(parsed.throughput.tasks_completed).toBe(2);
+    expect(parsed.lead_time.median_days).toBe(4);
+    expect(parsed.flow_efficiency.blocked_rate_pct).toBe(100);
+    expect(parsed.flow_efficiency.avg_blocked_days).toBe(2);
+  });
 });

@@ -58,7 +58,7 @@ export function registerDecisionTools(server: McpServer): void {
         if (supersedes) {
           db.prepare("UPDATE decisions SET status = 'superseded', superseded_by = ? WHERE id = ?").run(id, supersedes);
         }
-      })();
+      }).immediate();
 
       const scope = task_id ? `task ${task_id} in ${resolved.name}` : resolved.name;
       return {

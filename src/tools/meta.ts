@@ -1,5 +1,8 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
+// Bump whenever AGENT_INSTRUCTIONS changes, so installs rewrite AGENT.md.
+const AGENT_INSTRUCTIONS_VERSION = '2.0.0';
+
 const AGENT_INSTRUCTIONS = `# mindpm — Agent Instructions
 
 You have access to mindpm, a persistent project memory tool. Use it proactively to maintain context across conversations.
@@ -15,14 +18,15 @@ If working across **multiple projects** in one conversation, call \`start_sessio
 - When work is identified → call \`create_task\`
 - When a technical choice is made → call \`log_decision\` (include reasoning and alternatives; pass \`supersedes\` when it replaces an earlier decision)
 - When important context emerges → call \`add_note\` or \`set_context\`
-- Task status is not yours to write. Statuses are handoffs (backlog, ready, claimed, blocked, needs_verification, needs_human, done, cancelled) and the server enforces them. Only a human (\`actor: "human:<name>"\`) can set status with \`update_task\`. When the user explicitly asks you to change a status, pass their actor id on their behalf; never do it on your own initiative.
+- Task status is not yours to write. Statuses are handoffs (backlog, ready, claimed, blocked, needs_verification, needs_human, done, cancelled) and the server enforces them. Only a human can set status with \`update_task\`. Never pass a \`human:*\` id as your own actor.
+- When the user explicitly asks you to change a status, approve a spec, or review or resolve a task, act as yourself on their behalf: \`actor: "agent:assistant"\` (or your own agent id) with \`on_behalf_of: "human:<their name>"\`. The record shows that an agent made the change and who asked for it. Never do this on your own initiative. You can never use it on a task you hold a claim on or submitted, or on a spec you wrote.
 
 **At the end of the conversation:**
 Call \`end_session\` for each project you worked on, with a summary and clear next_steps.
 
 ## Actors
 
-Every write that changes ownership carries an actor id: \`human:<name>\`, \`agent:architect\`, \`agent:reviewer\`, or \`agent:cli-<id>\` for an executor. Use a stable, unique cli id per running agent.
+Every write that changes ownership carries an actor id: \`human:<name>\`, \`agent:architect\`, \`agent:reviewer\`, \`agent:assistant\` for an interactive chat, or \`agent:cli-<id>\` for an executor. Use a stable, unique cli id per running agent, and the same id for every call in a run.
 
 ## Architect: defining work
 
@@ -76,4 +80,4 @@ export function registerMetaTools(server: McpServer): void {
   );
 }
 
-export { AGENT_INSTRUCTIONS };
+export { AGENT_INSTRUCTIONS, AGENT_INSTRUCTIONS_VERSION };

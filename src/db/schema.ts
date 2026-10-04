@@ -154,6 +154,7 @@ ${TASKS_COLUMNS}
       old_value TEXT,
       new_value TEXT,
       actor TEXT,
+      on_behalf_of TEXT,
       attempt_id TEXT REFERENCES attempts(id),
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
@@ -441,6 +442,13 @@ export function runMigrations(db: Database.Database): void {
   setupFts(db, true);
 }
 
+// True when this database predates Phase 1 and the next runMigrations will
+// rebuild its tasks table. A brand-new database (no tasks table) is false.
+export function needsPhase1Migration(db: Database.Database): boolean {
+  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'").get() as { sql: string } | undefined;
+  return !!row && !row.sql.includes('needs_verification');
+}
+
 // Phase 1 (specs, attempts, handoff statuses). Runs as one transaction: the
 // tasks table is rebuilt because SQLite can't alter a CHECK constraint, legacy
 // statuses are mapped, and additive columns land on projects, decisions and
@@ -481,6 +489,7 @@ function migratePhase1(db: Database.Database): void {
       const historyCols = columnsOf(db, 'task_history');
       if (!historyCols.includes('actor')) db.exec('ALTER TABLE task_history ADD COLUMN actor TEXT');
       if (!historyCols.includes('attempt_id')) db.exec('ALTER TABLE task_history ADD COLUMN attempt_id TEXT REFERENCES attempts(id)');
+      if (!historyCols.includes('on_behalf_of')) db.exec('ALTER TABLE task_history ADD COLUMN on_behalf_of TEXT');
 
       db.exec(`
         CREATE TRIGGER IF NOT EXISTS trg_tasks_updated_at

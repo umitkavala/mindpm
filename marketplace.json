@@ -7,7 +7,7 @@
   "homepage": "https://github.com/umitkavala/mindpm",
   "license": "MIT",
   "runtime": "node",
-  "version": "1.2.23",
+  "version": "2.0.0",
   "categories": ["productivity", "memory", "project-management"],
   "tags": ["memory", "tasks", "decisions", "kanban", "sqlite", "sessions", "context"],
   "installation": {
