@@ -83,9 +83,9 @@ export function expireLeases(db: Database.Database): void {
 
 // Resolve a claim token to its live attempt and task. Every executor write
 // after claim_task goes through here, so a stale agent whose lease lapsed
-// can't overwrite a newer attempt.
+// can't overwrite a newer attempt. Callers run expireLeases first, outside
+// their transaction, so the expiry commits even when this throws.
 export function requireLiveClaim(db: Database.Database, claimToken: string): { attempt: AttemptRow; task: ClaimedTask } {
-  expireLeases(db);
   const attempt = db.prepare('SELECT * FROM attempts WHERE claim_token = ?').get(claimToken) as AttemptRow | undefined;
   if (!attempt) throw new ToolError('invalid_token', 'No attempt holds this claim token.');
   if (attempt.outcome === 'expired') {
@@ -94,10 +94,13 @@ export function requireLiveClaim(db: Database.Database, claimToken: string): { a
   if (attempt.outcome !== 'active') {
     throw new ToolError('invalid_token', `This claim already ended (attempt outcome: ${attempt.outcome}).`);
   }
-  const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(attempt.task_id) as ClaimedTask;
+  const task = db.prepare(
+    "SELECT *, lease_expires_at <= datetime('now') AS lapsed FROM tasks WHERE id = ?",
+  ).get(attempt.task_id) as ClaimedTask & { lapsed: number };
   if (task.status !== 'claimed' || task.claim_token !== claimToken) {
     throw new ToolError('invalid_token', 'This claim token no longer holds the task.');
   }
+  if (task.lapsed) throw new ToolError('lease_expired', 'The lease on this claim expired. Pick a task again.');
   return { attempt, task };
 }
 
