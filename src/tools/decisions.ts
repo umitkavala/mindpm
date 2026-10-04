@@ -2,6 +2,9 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod/v4';
 import { getDb, generateId, resolveProjectOrDefault, resolveProjectError } from '../db/queries.js';
 import { maybeAutoSession } from './auto-session.js';
+import { ToolError } from '../domain/lifecycle.js';
+import { resolveSpec, specKey } from '../domain/specs.js';
+import { guarded } from './results.js';
 
 export function registerDecisionTools(server: McpServer): void {
   server.registerTool(
@@ -18,37 +21,58 @@ export function registerDecisionTools(server: McpServer): void {
         reasoning: z.string().optional().describe('Why this was decided'),
         alternatives: z.array(z.string()).optional().describe('Rejected alternatives'),
         tags: z.array(z.string()).optional().describe('Tags like "architecture", "database", "api"'),
+        spec_id: z.string().optional().describe('Spec this decision shaped (id or key like "SPEC-12"). Linked decisions appear in task briefs'),
+        supersedes: z.string().optional().describe('Decision id this one replaces. The old one is marked superseded and never appears in a brief'),
       },
     },
-    async ({ project, task_id, title, decision, reasoning, alternatives, tags }) => {
+    async ({ project, task_id, title, decision, reasoning, alternatives, tags, spec_id, supersedes }) => guarded(() => {
       const resolved = resolveProjectOrDefault(project);
       if (!resolved) {
         return { content: [{ type: 'text' as const, text: resolveProjectError(project) }], isError: true };
       }
 
       const db = getDb();
+      const spec = spec_id ? resolveSpec(db, spec_id, resolved.id) : null;
+      if (spec && spec.project_id !== resolved.id) throw new ToolError('invalid_spec', `${specKey(spec)} belongs to a different project.`);
+      if (supersedes) {
+        const old = db.prepare('SELECT project_id, status FROM decisions WHERE id = ?').get(supersedes) as { project_id: string; status: string } | undefined;
+        if (!old || old.project_id !== resolved.id) throw new ToolError('not_found', `Decision "${supersedes}" not found in ${resolved.name}.`);
+        if (old.status === 'superseded') throw new ToolError('invalid_state', `Decision "${supersedes}" is already superseded.`);
+      }
+
       const id = generateId();
-      db.prepare(
-        `INSERT INTO decisions (id, project_id, task_id, title, decision, reasoning, alternatives, tags) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(
-        id,
-        resolved.id,
-        task_id ?? null,
-        title,
-        decision,
-        reasoning ?? null,
-        alternatives ? JSON.stringify(alternatives) : null,
-        tags ? JSON.stringify(tags) : null,
-      );
+      db.transaction(() => {
+        db.prepare(
+          `INSERT INTO decisions (id, project_id, task_id, title, decision, reasoning, alternatives, tags, spec_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(
+          id,
+          resolved.id,
+          task_id ?? null,
+          title,
+          decision,
+          reasoning ?? null,
+          alternatives ? JSON.stringify(alternatives) : null,
+          tags ? JSON.stringify(tags) : null,
+          spec?.id ?? null,
+        );
+        if (supersedes) {
+          db.prepare("UPDATE decisions SET status = 'superseded', superseded_by = ? WHERE id = ?").run(id, supersedes);
+        }
+      }).immediate();
 
       const scope = task_id ? `task ${task_id} in ${resolved.name}` : resolved.name;
       return {
         content: [{
           type: 'text' as const,
-          text: JSON.stringify({ decision_id: id, message: `Decision logged: "${title}" in ${scope}` }),
+          text: JSON.stringify({
+            decision_id: id,
+            message: `Decision logged: "${title}" in ${scope}`,
+            ...(spec ? { spec_key: specKey(spec) } : {}),
+            ...(supersedes ? { superseded: supersedes } : {}),
+          }),
         }],
       };
-    },
+    }),
   );
 
   server.registerTool(

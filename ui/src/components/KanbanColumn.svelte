@@ -49,7 +49,7 @@
     saveCollapsed(collapsed);
   }
 
-  const wipWarning = $derived(status === 'in_progress' && tasks.length > WIP_LIMIT);
+  const wipWarning = $derived(status === 'claimed' && tasks.length > WIP_LIMIT);
 
   function handleDragOver(e: DragEvent) {
     e.preventDefault();
@@ -95,7 +95,7 @@
         <span class="count" class:wip={wipWarning}>[{tasks.length}{hasMore ? '+' : ''}{wipWarning ? ' ⚠' : ''}]</span>
       </h3>
       <div class="header-actions">
-        {#if status === 'todo'}
+        {#if status === 'ready'}
           <button class="add-btn" title="Add task" onclick={() => onAddTask(status)}>+</button>
         {/if}
         <button class="collapse-btn" title="Collapse column" onclick={toggleCollapse}>«</button>

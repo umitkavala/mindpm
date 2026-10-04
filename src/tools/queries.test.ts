@@ -74,7 +74,7 @@ describe('get_project_summary', () => {
   it('returns full summary with all sections', async () => {
     const db = getTestDb();
     seedProject(db, { id: 'p1', name: 'P' });
-    seedTask(db, 'p1', { id: 't1', status: 'todo', priority: 'high' });
+    seedTask(db, 'p1', { id: 't1', status: 'ready', priority: 'high' });
     seedTask(db, 'p1', { id: 't2', status: 'blocked', blocked_by: '["t1"]' });
     seedDecision(db, 'p1', { id: 'd1' });
     seedNote(db, 'p1', { id: 'n1' });
@@ -111,7 +111,7 @@ describe('get_blockers', () => {
   it('returns blocked tasks with enriched blocking task info', async () => {
     const db = getTestDb();
     seedProject(db, { id: 'p1', name: 'P' });
-    seedTask(db, 'p1', { id: 't1', title: 'Blocker', status: 'in_progress' });
+    seedTask(db, 'p1', { id: 't1', title: 'Blocker', status: 'claimed' });
     seedTask(db, 'p1', { id: 't2', title: 'Blocked', status: 'blocked', blocked_by: '["t1"]' });
 
     const result = await callTool('get_blockers', { project: 'P' });
@@ -136,7 +136,7 @@ describe('get_blockers', () => {
   it('returns empty blockers when none exist', async () => {
     const db = getTestDb();
     seedProject(db, { id: 'p1', name: 'P' });
-    seedTask(db, 'p1', { id: 't1', status: 'todo' });
+    seedTask(db, 'p1', { id: 't1', status: 'ready' });
 
     const result = await callTool('get_blockers', { project: 'P' });
     const parsed = parseToolResult(result);
@@ -163,6 +163,27 @@ describe('search', () => {
     expect(parsed.results.notes).toHaveLength(1);
     expect(parsed.results.decisions).toHaveLength(1);
     expect(parsed.total).toBe(3);
+  });
+
+  it('searches spec objectives and attempt root causes', async () => {
+    const db = getTestDb();
+    seedProject(db, { id: 'p1', name: 'P' });
+    db.prepare("UPDATE projects SET slug = 'p' WHERE id = 'p1'").run();
+    seedTask(db, 'p1', { id: 't1', title: 'Timeout' });
+    db.prepare("UPDATE tasks SET seq = 1 WHERE id = 't1'").run();
+    db.prepare(
+      `INSERT INTO specs (id, project_id, seq, title, objective, why, created_by)
+       VALUES ('s1', 'p1', 4, 'Timeout', 'Close idle conversations', 'Idle ones hold capacity', 'human:umit')`,
+    ).run();
+    db.prepare(
+      `INSERT INTO attempts (id, task_id, attempt_no, actor, claim_token, outcome, root_cause)
+       VALUES ('a1', 't1', 1, 'agent:cli-1', 'tok', 'failed', 'Deadlock between sweep and handler')`,
+    ).run();
+
+    const specs = parseToolResult(await callTool('search', { project: 'P', query: 'idle' }));
+    expect(specs.results.specs).toEqual([expect.objectContaining({ key: 'SPEC-4', type: 'spec' })]);
+    const attempts = parseToolResult(await callTool('search', { project: 'P', query: 'deadlock' }));
+    expect(attempts.results.attempts).toEqual([expect.objectContaining({ task_key: 'p-1', attempt_no: 1, type: 'attempt' })]);
   });
 
   it('returns total count', async () => {

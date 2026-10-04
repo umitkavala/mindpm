@@ -18,12 +18,12 @@
     onClose: () => void;
   }
 
-  let { task, projectId, allTasks = [], defaultStatus = 'todo', onSave, onClose }: Props = $props();
+  let { task, projectId, allTasks = [], defaultStatus = 'ready', onSave, onClose }: Props = $props();
 
   let title = $state('');
   let description = $state('');
   let priority: TaskPriority = $state('medium');
-  let status: TaskStatus = $state('todo');
+  let status: TaskStatus = $state('ready');
   let tagsStr = $state('');
   let history: TaskHistoryEvent[] = $state([]);
 
@@ -157,10 +157,13 @@
           <div class="field">
             <label for="status">Status</label>
             <select id="status" bind:value={status}>
-              <option value="todo">Todo</option>
-              <option value="in_progress">In Progress</option>
+              <option value="backlog">Backlog</option>
+              <option value="ready">Ready</option>
+              <!-- Claimed is set only by claim_task; shown so a claimed task's current value renders. -->
+              <option value="claimed" disabled>Claimed</option>
               <option value="blocked">Blocked</option>
-              <option value="in_review">In Review</option>
+              <option value="needs_human">Needs Human</option>
+              <option value="needs_verification">Needs Verification</option>
               <option value="done">Done</option>
               <option value="cancelled">Cancelled</option>
             </select>
@@ -430,10 +433,12 @@
     flex-shrink: 0;
   }
 
-  .blocker-status-todo { color: var(--text-muted); border-color: var(--border-bright); }
-  .blocker-status-in_progress { color: var(--primary); border-color: var(--primary); }
+  .blocker-status-backlog { color: var(--text-muted); border-color: var(--border); }
+  .blocker-status-ready { color: var(--text-muted); border-color: var(--border-bright); }
+  .blocker-status-claimed { color: var(--primary); border-color: var(--primary); }
+  .blocker-status-needs_human { color: var(--priority-high, #ff5722); border-color: currentColor; }
   .blocker-status-blocked { color: var(--priority-critical); border-color: var(--priority-critical); }
-  .blocker-status-in_review { color: var(--priority-medium, #ff9800); border-color: currentColor; }
+  .blocker-status-needs_verification { color: var(--priority-medium, #ff9800); border-color: currentColor; }
   .blocker-status-done { color: var(--priority-low, #4caf50); border-color: currentColor; }
   .blocker-status-cancelled { color: var(--text-muted); border-color: var(--border); }
 

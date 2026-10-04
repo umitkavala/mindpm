@@ -10,6 +10,9 @@ import { registerSessionTools } from './tools/sessions.js';
 import { registerQueryTools } from './tools/queries.js';
 import { registerMetaTools } from './tools/meta.js';
 import { registerDeliveryMetricsTools } from './tools/delivery-metrics.js';
+import { registerSpecTools } from './tools/specs.js';
+import { registerExecutorTools } from './tools/executor.js';
+import { registerReviewTools } from './tools/review.js';
 import { closeDb, ensureDbDirectory } from './db/connection.js';
 import { startHttpServer } from './server/http.js';
 import { Server } from 'node:http';
@@ -39,6 +42,9 @@ registerSessionTools(server);
 registerQueryTools(server);
 registerMetaTools(server);
 registerDeliveryMetricsTools(server);
+registerSpecTools(server);
+registerExecutorTools(server);
+registerReviewTools(server);
 
 // Start the server
 let httpServer: Server | undefined;

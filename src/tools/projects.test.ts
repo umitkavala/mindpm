@@ -220,15 +220,26 @@ describe('get_project_status', () => {
   it('includes task counts grouped by status', async () => {
     const db = getTestDb();
     seedProject(db, { id: 'p1', name: 'P' });
-    seedTask(db, 'p1', { id: 't1', status: 'todo' });
-    seedTask(db, 'p1', { id: 't2', status: 'todo' });
+    seedTask(db, 'p1', { id: 't1', status: 'ready' });
+    seedTask(db, 'p1', { id: 't2', status: 'ready' });
     seedTask(db, 'p1', { id: 't3', status: 'done' });
 
     const result = await callTool('get_project_status', { project: 'P' });
     const parsed = parseToolResult(result);
-    const todoCount = parsed.task_summary.find((s: any) => s.status === 'todo');
+    const todoCount = parsed.task_summary.find((s: any) => s.status === 'ready');
     const doneCount = parsed.task_summary.find((s: any) => s.status === 'done');
     expect(todoCount.count).toBe(2);
     expect(doneCount.count).toBe(1);
+  });
+});
+
+describe('set_execution_defaults', () => {
+  it('stores conventions and verification commands for briefs', async () => {
+    const db = getTestDb();
+    seedProject(db, { id: 'p1', name: 'P' });
+    await callTool('set_execution_defaults', { project: 'P', conventions: 'No ORMs.', verification_defaults: { build: 'npm run build' } });
+    const row = db.prepare('SELECT conventions, verification_defaults FROM projects WHERE id = ?').get('p1') as any;
+    expect(row).toEqual({ conventions: 'No ORMs.', verification_defaults: '{"build":"npm run build"}' });
+    expect((await callTool('set_execution_defaults', { project: 'P' })).isError).toBe(true);
   });
 });

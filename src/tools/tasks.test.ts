@@ -102,9 +102,9 @@ describe('update_task', () => {
   it('updates task status to done and sets completed_at', async () => {
     const db = getTestDb();
     seedProject(db, { id: 'p1', name: 'P' });
-    seedTask(db, 'p1', { id: 't1' });
+    seedTask(db, 'p1', { id: 't1', status: 'needs_verification' });
 
-    await callTool('update_task', { task_id: 't1', status: 'done' });
+    await callTool('update_task', { task_id: 't1', status: 'done', actor: 'human:umit' });
     const row = db.prepare('SELECT status, completed_at FROM tasks WHERE id = ?').get('t1') as any;
     expect(row.status).toBe('done');
     expect(row.completed_at).not.toBeNull();
@@ -115,11 +115,11 @@ describe('update_task', () => {
     seedProject(db, { id: 'p1', name: 'P' });
     seedTask(db, 'p1', { id: 't1' });
 
-    await callTool('update_task', { task_id: 't1', title: 'Updated', priority: 'critical', status: 'in_progress' });
+    await callTool('update_task', { task_id: 't1', title: 'Updated', priority: 'critical', status: 'needs_human', actor: 'human:umit' });
     const row = db.prepare('SELECT * FROM tasks WHERE id = ?').get('t1') as any;
     expect(row.title).toBe('Updated');
     expect(row.priority).toBe('critical');
-    expect(row.status).toBe('in_progress');
+    expect(row.status).toBe('needs_human');
   });
 
   it('setting blocked_by auto-sets status to blocked', async () => {
@@ -139,9 +139,9 @@ describe('update_task', () => {
     seedProject(db, { id: 'p1', name: 'P' });
     seedTask(db, 'p1', { id: 't1' });
 
-    await callTool('update_task', { task_id: 't1', blocked_by: ['x'], status: 'in_progress' });
+    await callTool('update_task', { task_id: 't1', blocked_by: ['x'], status: 'backlog', actor: 'human:umit' });
     const row = db.prepare('SELECT status FROM tasks WHERE id = ?').get('t1') as any;
-    expect(row.status).toBe('in_progress');
+    expect(row.status).toBe('backlog');
   });
 
   it('replaces tags entirely', async () => {
@@ -171,20 +171,78 @@ describe('update_task', () => {
   it('logs status change to task_history', async () => {
     const db = getTestDb();
     seedProject(db, { id: 'p1', name: 'P' });
-    seedTask(db, 'p1', { id: 't1', status: 'todo' });
+    seedTask(db, 'p1', { id: 't1', status: 'ready' });
 
-    await callTool('update_task', { task_id: 't1', status: 'in_progress' });
+    await callTool('update_task', { task_id: 't1', status: 'blocked', actor: 'human:umit' });
 
     const history = db.prepare('SELECT * FROM task_history WHERE task_id = ? AND event = ?').all('t1', 'status_changed') as any[];
     expect(history).toHaveLength(1);
-    expect(history[0].old_value).toBe('todo');
-    expect(history[0].new_value).toBe('in_progress');
+    expect(history[0].old_value).toBe('ready');
+    expect(history[0].new_value).toBe('blocked');
+    expect(history[0].actor).toBe('human:umit');
+  });
+
+  it('rejects status changes without a human actor and writes nothing', async () => {
+    const db = getTestDb();
+    seedProject(db, { id: 'p1', name: 'P' });
+    seedTask(db, 'p1', { id: 't1', title: 'Before' });
+
+    for (const actor of [undefined, 'agent:cli-1', 'agent:architect']) {
+      const result = await callTool('update_task', { task_id: 't1', title: 'After', status: 'blocked', actor });
+      expect(result.isError).toBe(true);
+      expect(parseToolResult(result).error).toBe('illegal_transition');
+    }
+    const row = db.prepare('SELECT title, status FROM tasks WHERE id = ?').get('t1') as any;
+    expect(row).toEqual({ title: 'Before', status: 'ready' });
+  });
+
+  it('rejects transitions outside the lifecycle', async () => {
+    const db = getTestDb();
+    seedProject(db, { id: 'p1', name: 'P' });
+    seedTask(db, 'p1', { id: 't1' });
+    seedTask(db, 'p1', { id: 't2', status: 'done' });
+
+    const toDone = await callTool('update_task', { task_id: 't1', status: 'done', actor: 'human:umit' });
+    expect(parseToolResult(toDone).error).toBe('illegal_transition');
+    const toClaimed = await callTool('update_task', { task_id: 't1', status: 'claimed', actor: 'human:umit' });
+    expect(parseToolResult(toClaimed).error).toBe('illegal_transition');
+    const cancelDone = await callTool('update_task', { task_id: 't2', status: 'cancelled', actor: 'human:umit' });
+    expect(parseToolResult(cancelDone).error).toBe('illegal_transition');
+  });
+
+  it('accepts legacy status names with a deprecation warning', async () => {
+    const db = getTestDb();
+    seedProject(db, { id: 'p1', name: 'P' });
+    seedTask(db, 'p1', { id: 't1', status: 'blocked' });
+
+    const result = await callTool('update_task', { task_id: 't1', status: 'todo', actor: 'human:umit' });
+    expect(parseToolResult(result).warning).toMatch(/deprecated/);
+    const row = db.prepare('SELECT status FROM tasks WHERE id = ?').get('t1') as any;
+    expect(row.status).toBe('ready');
+  });
+
+  it('marking a task done unblocks dependents whose blockers are all done', async () => {
+    const db = getTestDb();
+    seedProject(db, { id: 'p1', name: 'P' });
+    seedTask(db, 'p1', { id: 'a', status: 'needs_verification' });
+    seedTask(db, 'p1', { id: 'b', status: 'done' });
+    seedTask(db, 'p1', { id: 'c', status: 'ready' });
+    seedTask(db, 'p1', { id: 'd1', status: 'blocked', blocked_by: '["a","b"]' });
+    seedTask(db, 'p1', { id: 'd2', status: 'blocked', blocked_by: '["a","c"]' });
+    seedTask(db, 'p1', { id: 'd3', status: 'blocked' });
+
+    await callTool('update_task', { task_id: 'a', status: 'done', actor: 'human:umit' });
+
+    const status = (id: string) => (db.prepare('SELECT status FROM tasks WHERE id = ?').get(id) as any).status;
+    expect(status('d1')).toBe('ready');
+    expect(status('d2')).toBe('blocked');
+    expect(status('d3')).toBe('blocked');
   });
 
   it('does not log to task_history when status unchanged', async () => {
     const db = getTestDb();
     seedProject(db, { id: 'p1', name: 'P' });
-    seedTask(db, 'p1', { id: 't1', status: 'todo' });
+    seedTask(db, 'p1', { id: 't1', status: 'ready' });
 
     await callTool('update_task', { task_id: 't1', title: 'New title' });
 
@@ -197,7 +255,7 @@ describe('list_tasks', () => {
   it('lists non-done tasks by default', async () => {
     const db = getTestDb();
     seedProject(db, { id: 'p1', name: 'P' });
-    seedTask(db, 'p1', { id: 't1', status: 'todo' });
+    seedTask(db, 'p1', { id: 't1', status: 'ready' });
     seedTask(db, 'p1', { id: 't2', status: 'done' });
 
     const result = await callTool('list_tasks', { project: 'P' });
@@ -209,7 +267,7 @@ describe('list_tasks', () => {
   it('includes done tasks when include_done is true', async () => {
     const db = getTestDb();
     seedProject(db, { id: 'p1', name: 'P' });
-    seedTask(db, 'p1', { id: 't1', status: 'todo' });
+    seedTask(db, 'p1', { id: 't1', status: 'ready' });
     seedTask(db, 'p1', { id: 't2', status: 'done' });
 
     const result = await callTool('list_tasks', { project: 'P', include_done: true });
@@ -220,7 +278,7 @@ describe('list_tasks', () => {
   it('filters by status', async () => {
     const db = getTestDb();
     seedProject(db, { id: 'p1', name: 'P' });
-    seedTask(db, 'p1', { id: 't1', status: 'todo' });
+    seedTask(db, 'p1', { id: 't1', status: 'ready' });
     seedTask(db, 'p1', { id: 't2', status: 'blocked' });
 
     const result = await callTool('list_tasks', { project: 'P', status: 'blocked' });
@@ -306,8 +364,8 @@ describe('get_next_tasks', () => {
   it('returns highest priority todo/in_progress tasks', async () => {
     const db = getTestDb();
     seedProject(db, { id: 'p1', name: 'P' });
-    seedTask(db, 'p1', { id: 't1', priority: 'low', status: 'todo' });
-    seedTask(db, 'p1', { id: 't2', priority: 'critical', status: 'in_progress' });
+    seedTask(db, 'p1', { id: 't1', priority: 'low', status: 'ready' });
+    seedTask(db, 'p1', { id: 't2', priority: 'critical', status: 'claimed' });
 
     const result = await callTool('get_next_tasks', { project: 'P' });
     const parsed = parseToolResult(result);
@@ -321,7 +379,7 @@ describe('get_next_tasks', () => {
     seedTask(db, 'p1', { id: 't1', status: 'blocked' });
     seedTask(db, 'p1', { id: 't2', status: 'done' });
     seedTask(db, 'p1', { id: 't3', status: 'cancelled' });
-    seedTask(db, 'p1', { id: 't4', status: 'todo' });
+    seedTask(db, 'p1', { id: 't4', status: 'ready' });
 
     const result = await callTool('get_next_tasks', { project: 'P' });
     const parsed = parseToolResult(result);

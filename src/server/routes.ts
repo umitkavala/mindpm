@@ -3,6 +3,14 @@ import { getDb, generateId, resolveProjectOrDefault, resolveProjectId, recordTas
 import { generateSlug } from '../utils/ids.js';
 import { computeDeliveryMetrics } from '../db/metrics.js';
 import { matchRoute, parseBody, sendJson } from './http.js';
+import { openBlockers, setStatus, ToolError } from '../domain/lifecycle.js';
+import { changeStatusAsHuman } from '../domain/status-change.js';
+import { expireLeases } from '../domain/attempts.js';
+import { publicTask } from '../tools/results.js';
+
+// Anything reaching the HTTP port is the local Kanban UI and counts as a
+// human. Same trust model as declared actor ids: local only.
+const UI_ACTOR = 'human:ui';
 
 type RouteHandler = (
   req: IncomingMessage,
@@ -117,6 +125,7 @@ const listTasks: RouteHandler = async (req, res, params) => {
   const limit = clampInt(url.searchParams.get('limit'), 100, 1, 500);
   const offset = clampInt(url.searchParams.get('offset'), 0, 0, Number.MAX_SAFE_INTEGER);
 
+  expireLeases(db);
   const conditions = ['t.project_id = ?'];
   const sqlParams: unknown[] = [params.pid];
   if (status) {
@@ -139,7 +148,7 @@ const listTasks: RouteHandler = async (req, res, params) => {
     sql += ` LIMIT ${limit} OFFSET ${offset}`;
   }
 
-  const rows = db.prepare(sql).all(...sqlParams);
+  const rows = (db.prepare(sql).all(...sqlParams) as Record<string, unknown>[]).map(publicTask);
   sendJson(res, 200, rows);
 };
 
@@ -179,8 +188,8 @@ const createTask: RouteHandler = async (req, res, params) => {
   );
 
   const task = db.prepare('SELECT t.*, p.slug || \'-\' || t.seq AS short_id FROM tasks t JOIN projects p ON t.project_id = p.id WHERE t.id = ?').get(id);
-  recordTaskHistory(id, 'created', null, JSON.stringify({ status: priority === 'medium' ? 'todo' : priority, priority }));
-  sendJson(res, 201, task);
+  recordTaskHistory(id, 'created', null, JSON.stringify({ status: 'ready', priority }), UI_ACTOR);
+  sendJson(res, 201, publicTask(task as Record<string, unknown>));
 };
 
 const updateTask: RouteHandler = async (req, res, params) => {
@@ -203,15 +212,6 @@ const updateTask: RouteHandler = async (req, res, params) => {
 
   if (body.title !== undefined) { updates.push('title = ?'); sqlParams.push(body.title); }
   if (body.description !== undefined) { updates.push('description = ?'); sqlParams.push(body.description); }
-  if (body.status !== undefined) {
-    updates.push('status = ?');
-    sqlParams.push(body.status);
-    if (body.status === 'done') {
-      updates.push('completed_at = CURRENT_TIMESTAMP');
-    } else {
-      updates.push('completed_at = NULL');
-    }
-  }
   if (body.priority !== undefined) { updates.push('priority = ?'); sqlParams.push(body.priority); }
   if (body.tags !== undefined) {
     updates.push('tags = ?');
@@ -220,32 +220,42 @@ const updateTask: RouteHandler = async (req, res, params) => {
   if (body.blocked_by !== undefined) {
     updates.push('blocked_by = ?');
     sqlParams.push(Array.isArray(body.blocked_by) ? JSON.stringify(body.blocked_by) : null);
-    if (Array.isArray(body.blocked_by) && body.blocked_by.length > 0 && body.status === undefined) {
-      updates.push("status = 'blocked'");
-    }
   }
 
-  if (updates.length === 0) {
+  if (updates.length === 0 && body.status === undefined) {
     sendJson(res, 400, { error: 'No updates provided' });
     return;
   }
 
-  sqlParams.push(resolvedId);
-  db.prepare(`UPDATE tasks SET ${updates.join(', ')} WHERE id = ?`).run(...sqlParams);
-
-  // Record history for meaningful field changes
-  if (body.status !== undefined && body.status !== existing.status) {
-    recordTaskHistory(resolvedId, 'status_changed', existing.status as string, body.status as string);
-  }
-  if (body.priority !== undefined && body.priority !== existing.priority) {
-    recordTaskHistory(resolvedId, 'priority_changed', existing.priority as string, body.priority as string);
-  }
-  if (body.title !== undefined && body.title !== existing.title) {
-    recordTaskHistory(resolvedId, 'title_changed', existing.title as string, body.title as string);
+  try {
+    db.transaction(() => {
+      if (updates.length > 0) {
+        db.prepare(`UPDATE tasks SET ${updates.join(', ')} WHERE id = ?`).run(...sqlParams, resolvedId);
+      }
+      if (body.status !== undefined) {
+        changeStatusAsHuman(db, resolvedId, String(body.status), UI_ACTOR);
+      } else if (Array.isArray(body.blocked_by) && ['ready', 'backlog'].includes(existing.status as string)
+        && openBlockers(db, body.blocked_by as string[]).length > 0) {
+        setStatus(db, resolvedId, existing.status as string, 'blocked', UI_ACTOR);
+      }
+      // Record history for meaningful field changes
+      if (body.priority !== undefined && body.priority !== existing.priority) {
+        recordTaskHistory(resolvedId, 'priority_changed', existing.priority as string, body.priority as string, UI_ACTOR);
+      }
+      if (body.title !== undefined && body.title !== existing.title) {
+        recordTaskHistory(resolvedId, 'title_changed', existing.title as string, body.title as string, UI_ACTOR);
+      }
+    }).immediate();
+  } catch (e) {
+    if (e instanceof ToolError) {
+      sendJson(res, e.code === 'not_found' ? 404 : 409, { error: e.message, code: e.code });
+      return;
+    }
+    throw e;
   }
 
   const updated = db.prepare('SELECT t.*, p.slug || \'-\' || t.seq AS short_id FROM tasks t JOIN projects p ON t.project_id = p.id WHERE t.id = ?').get(resolvedId);
-  sendJson(res, 200, updated);
+  sendJson(res, 200, publicTask(updated as Record<string, unknown>));
 };
 
 const deleteTask: RouteHandler = async (_req, res, params) => {
@@ -263,22 +273,21 @@ const deleteTask: RouteHandler = async (_req, res, params) => {
     return;
   }
 
-  const deleteTransaction = db.transaction((taskId: string) => {
-    // Get subtask IDs
-    const subtasks = db.prepare('SELECT id FROM tasks WHERE parent_task_id = ?').all(taskId) as { id: string }[];
-    for (const sub of subtasks) {
-      db.prepare('DELETE FROM task_history WHERE task_id = ?').run(sub.id);
-      db.prepare('DELETE FROM notes WHERE task_id = ?').run(sub.id);
-      db.prepare('DELETE FROM tasks WHERE id = ?').run(sub.id);
-    }
-    // Delete history and notes linked to this task
+  // History rows reference attempts, so they go first.
+  const deleteRows = (taskId: string) => {
     db.prepare('DELETE FROM task_history WHERE task_id = ?').run(taskId);
     db.prepare('DELETE FROM notes WHERE task_id = ?').run(taskId);
-    // Delete the task
+    db.prepare('DELETE FROM task_criteria WHERE task_id = ?').run(taskId);
+    db.prepare('DELETE FROM attempts WHERE task_id = ?').run(taskId);
     db.prepare('DELETE FROM tasks WHERE id = ?').run(taskId);
+  };
+  const deleteTransaction = db.transaction((taskId: string) => {
+    const subtasks = db.prepare('SELECT id FROM tasks WHERE parent_task_id = ?').all(taskId) as { id: string }[];
+    for (const sub of subtasks) deleteRows(sub.id);
+    deleteRows(taskId);
   });
 
-  deleteTransaction(resolvedId);
+  deleteTransaction.immediate(resolvedId);
   sendJson(res, 200, { message: 'Task deleted' });
 };
 

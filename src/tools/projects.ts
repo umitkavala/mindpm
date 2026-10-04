@@ -4,6 +4,9 @@ import { getDb, generateId, resolveProjectId, resolveProjectOrDefault, resolvePr
 import { generateSlug } from '../utils/ids.js';
 import { maybeAutoSession } from './auto-session.js';
 
+const VERIFICATION = z.record(z.string(), z.string())
+  .describe('Verification commands keyed by kind, e.g. {"build": "dotnet build", "unit": "dotnet test tests/unit"}');
+
 export function registerProjectTools(server: McpServer): void {
   server.registerTool(
     'create_project',
@@ -16,9 +19,11 @@ export function registerProjectTools(server: McpServer): void {
         description: z.string().optional().describe('What this project is about'),
         tech_stack: z.array(z.string()).optional().describe('Technologies used, e.g. ["FastAPI", "React", "PostgreSQL"]'),
         repo_path: z.string().optional().describe('Path to the project repository'),
+        conventions: z.string().optional().describe('Short coding conventions, included in every task brief'),
+        verification_defaults: VERIFICATION.optional(),
       },
     },
-    async ({ name, description, tech_stack, repo_path }) => {
+    async ({ name, description, tech_stack, repo_path, conventions, verification_defaults }) => {
       if (repo_path) {
         const validation = validateRepoPath(repo_path);
         if (!validation.ok) {
@@ -39,8 +44,11 @@ export function registerProjectTools(server: McpServer): void {
 
       try {
         db.prepare(
-          `INSERT INTO projects (id, name, slug, description, tech_stack, repo_path) VALUES (?, ?, ?, ?, ?, ?)`
-        ).run(id, name, slug, description ?? null, tech_stack ? JSON.stringify(tech_stack) : null, repo_path ?? null);
+          `INSERT INTO projects (id, name, slug, description, tech_stack, repo_path, conventions, verification_defaults) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(
+          id, name, slug, description ?? null, tech_stack ? JSON.stringify(tech_stack) : null, repo_path ?? null,
+          conventions ?? null, verification_defaults ? JSON.stringify(verification_defaults) : null,
+        );
       } catch (e: any) {
         if (e.message?.includes('UNIQUE constraint failed')) {
           return { content: [{ type: 'text' as const, text: `Project "${name}" already exists.` }], isError: true };
@@ -166,6 +174,38 @@ export function registerProjectTools(server: McpServer): void {
           type: 'text' as const,
           text: JSON.stringify({ project_id: resolved.id, repo_path, message: `Repo path set for "${resolved.name}"` }),
         }],
+      };
+    },
+  );
+
+  server.registerTool(
+    'set_execution_defaults',
+    {
+      title: 'Set Execution Defaults',
+      description:
+        'Set the coding conventions and verification commands (build, unit, integration, lint) that go into every task brief for this project. ' +
+        'Tasks can override individual commands with their own verification.',
+      inputSchema: {
+        project: z.string().describe('Project name or ID'),
+        conventions: z.string().optional().describe('Short coding conventions'),
+        verification_defaults: VERIFICATION.optional(),
+      },
+    },
+    async ({ project, conventions, verification_defaults }) => {
+      const resolved = resolveProjectOrDefault(project);
+      if (!resolved) {
+        return { content: [{ type: 'text' as const, text: resolveProjectError(project) }], isError: true };
+      }
+      if (conventions === undefined && verification_defaults === undefined) {
+        return { content: [{ type: 'text' as const, text: 'Nothing to set: pass conventions and/or verification_defaults.' }], isError: true };
+      }
+      const db = getDb();
+      if (conventions !== undefined) db.prepare('UPDATE projects SET conventions = ? WHERE id = ?').run(conventions, resolved.id);
+      if (verification_defaults !== undefined) {
+        db.prepare('UPDATE projects SET verification_defaults = ? WHERE id = ?').run(JSON.stringify(verification_defaults), resolved.id);
+      }
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify({ project_id: resolved.id, message: `Execution defaults set for "${resolved.name}"` }) }],
       };
     },
   );

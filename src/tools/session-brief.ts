@@ -94,7 +94,7 @@ export interface DecisionSummary {
 
 export interface TaskDelta {
   changed: TaskStatusChange[];
-  in_progress_now: TaskSummary[];
+  claimed_now: TaskSummary[];
   next_suggested: NextSuggestedTask[];
   blockers: BlockerInfo[];
   decisions_since: DecisionSummary[];
@@ -106,7 +106,7 @@ const NEXT_SUGGESTED_LIMIT = 5;
 // Pure SQL — no git. `cutoff` is an ISO timestamp (typically the last
 // session's ended_at) or null when there was no prior session, in which case
 // there's nothing to diff so the "since" sections come back empty. Current-
-// state sections (in_progress_now, next_suggested, blockers) don't depend on
+// state sections (claimed_now, next_suggested, blockers) don't depend on
 // a cutoff and are always populated.
 export function getTaskAndDecisionDelta(db: Database.Database, projectId: string, cutoff: string | null): TaskDelta {
   const changed = cutoff
@@ -121,14 +121,14 @@ export function getTaskAndDecisionDelta(db: Database.Database, projectId: string
         .all(projectId, cutoff) as TaskStatusChange[])
     : [];
 
-  const in_progress_now = db
-    .prepare(`SELECT id, title FROM tasks WHERE project_id = ? AND status = 'in_progress' ORDER BY updated_at DESC`)
+  const claimed_now = db
+    .prepare(`SELECT id, title FROM tasks WHERE project_id = ? AND status = 'claimed' ORDER BY updated_at DESC`)
     .all(projectId) as TaskSummary[];
 
   const next_suggested = db
     .prepare(
       `SELECT id, title, priority FROM tasks
-       WHERE project_id = ? AND status IN ('todo', 'in_progress')
+       WHERE project_id = ? AND status IN ('ready', 'claimed')
        ORDER BY CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 END,
                 created_at ASC
        LIMIT ?`,
@@ -149,7 +149,7 @@ export function getTaskAndDecisionDelta(db: Database.Database, projectId: string
     ? (db.prepare(`SELECT COUNT(*) as n FROM notes WHERE project_id = ? AND created_at > ?`).get(projectId, cutoff) as { n: number }).n
     : 0;
 
-  return { changed, in_progress_now, next_suggested, blockers, decisions_since, notes_since_count };
+  return { changed, claimed_now, next_suggested, blockers, decisions_since, notes_since_count };
 }
 
 const COMMIT_CAP = 20;
@@ -298,7 +298,7 @@ export interface SessionBrief {
   git: GitSection;
   tasks: {
     changed: TaskStatusChange[];
-    in_progress_now: TaskSummary[];
+    claimed_now: TaskSummary[];
     next_suggested: NextSuggestedTask[];
   };
   blockers: BlockerInfo[];
@@ -335,7 +335,7 @@ export function buildSessionBrief(projectId: string, projectName: string): Sessi
     git,
     tasks: {
       changed: delta.changed,
-      in_progress_now: delta.in_progress_now,
+      claimed_now: delta.claimed_now,
       next_suggested: delta.next_suggested,
     },
     blockers: delta.blockers,

@@ -23,7 +23,7 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
-  // Active tasks only (todo/in_progress/blocked/in_review). Pass includeDone for
+  // Active tasks only (everything except done/cancelled). Pass includeDone for
   // the full set — used where links to completed tasks must resolve.
   getTasks: (projectId: string, includeDone = false) =>
     request<Task[]>(`/projects/${projectId}/tasks${includeDone ? '?include_done=true' : ''}`),

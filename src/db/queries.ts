@@ -2,6 +2,7 @@ import { existsSync, statSync } from 'fs';
 import { join } from 'path';
 import { getDb } from './connection.js';
 import { generateId } from '../utils/ids.js';
+import { recordHistory } from '../domain/lifecycle.js';
 import { getSessionStartedProjects } from '../utils/session-state.js';
 
 // Helper to resolve a project by name or ID
@@ -100,11 +101,9 @@ export function recordTaskHistory(
   event: string,
   oldValue: string | null,
   newValue: string | null,
+  actor: string | null = null,
 ): void {
-  const db = getDb();
-  db.prepare(
-    'INSERT INTO task_history (id, task_id, event, old_value, new_value) VALUES (?, ?, ?, ?, ?)'
-  ).run(generateId(), taskId, event, oldValue, newValue);
+  recordHistory(getDb(), taskId, event, oldValue, newValue, actor);
 }
 
 // Validate a candidate repo_path: must exist, be a directory, and contain .git.

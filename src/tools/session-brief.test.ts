@@ -111,7 +111,7 @@ describe('getTaskAndDecisionDelta', () => {
   });
 
   it('returns empty since-sections and zero note count when cutoff is null (first-ever session)', () => {
-    db.prepare("INSERT INTO tasks (id, project_id, title, status) VALUES ('t1', 'p1', 'T1', 'in_progress')").run();
+    db.prepare("INSERT INTO tasks (id, project_id, title, status) VALUES ('t1', 'p1', 'T1', 'claimed')").run();
     db.prepare("INSERT INTO decisions (id, project_id, title, decision) VALUES ('d1', 'p1', 'D1', 'x')").run();
     db.prepare("INSERT INTO notes (id, project_id, content) VALUES ('n1', 'p1', 'note')").run();
 
@@ -120,21 +120,21 @@ describe('getTaskAndDecisionDelta', () => {
     expect(delta.decisions_since).toEqual([]);
     expect(delta.notes_since_count).toBe(0);
     // Current-state sections still populate even with no cutoff.
-    expect(delta.in_progress_now).toEqual([{ id: 't1', title: 'T1' }]);
+    expect(delta.claimed_now).toEqual([{ id: 't1', title: 'T1' }]);
   });
 
   it('lists status changes after the cutoff, excluding ones before it', () => {
     db.prepare("INSERT INTO tasks (id, project_id, title, status) VALUES ('t1', 'p1', 'T1', 'done')").run();
     db.prepare(
-      `INSERT INTO task_history (id, task_id, event, old_value, new_value, created_at) VALUES ('h1', 't1', 'status_changed', 'todo', 'in_progress', '2026-08-08T10:00:00.000Z')`,
+      `INSERT INTO task_history (id, task_id, event, old_value, new_value, created_at) VALUES ('h1', 't1', 'status_changed', 'ready', 'claimed', '2026-08-08T10:00:00.000Z')`,
     ).run();
     db.prepare(
-      `INSERT INTO task_history (id, task_id, event, old_value, new_value, created_at) VALUES ('h2', 't1', 'status_changed', 'in_progress', 'done', '2026-08-09T10:00:00.000Z')`,
+      `INSERT INTO task_history (id, task_id, event, old_value, new_value, created_at) VALUES ('h2', 't1', 'status_changed', 'claimed', 'done', '2026-08-09T10:00:00.000Z')`,
     ).run();
 
     const delta = getTaskAndDecisionDelta(db, 'p1', '2026-08-09T00:00:00.000Z');
     expect(delta.changed).toEqual([
-      { id: 't1', title: 'T1', from_status: 'in_progress', to_status: 'done', at: '2026-08-09T10:00:00.000Z' },
+      { id: 't1', title: 'T1', from_status: 'claimed', to_status: 'done', at: '2026-08-09T10:00:00.000Z' },
     ]);
   });
 
@@ -152,15 +152,15 @@ describe('getTaskAndDecisionDelta', () => {
     db.prepare(
       `INSERT INTO tasks (id, project_id, title, status, blocked_by) VALUES ('t1', 'p1', 'Blocked task', 'blocked', '["t2"]')`,
     ).run();
-    db.prepare("INSERT INTO tasks (id, project_id, title, status) VALUES ('t2', 'p1', 'Blocker', 'todo')").run();
+    db.prepare("INSERT INTO tasks (id, project_id, title, status) VALUES ('t2', 'p1', 'Blocker', 'ready')").run();
 
     const delta = getTaskAndDecisionDelta(db, 'p1', null);
     expect(delta.blockers).toEqual([{ task_id: 't1', title: 'Blocked task', blocked_by: '["t2"]' }]);
   });
 
   it('orders next_suggested by priority then age, capped at 5', () => {
-    db.prepare("INSERT INTO tasks (id, project_id, title, status, priority) VALUES ('t1', 'p1', 'Low', 'todo', 'low')").run();
-    db.prepare("INSERT INTO tasks (id, project_id, title, status, priority) VALUES ('t2', 'p1', 'Critical', 'todo', 'critical')").run();
+    db.prepare("INSERT INTO tasks (id, project_id, title, status, priority) VALUES ('t1', 'p1', 'Low', 'ready', 'low')").run();
+    db.prepare("INSERT INTO tasks (id, project_id, title, status, priority) VALUES ('t2', 'p1', 'Critical', 'ready', 'critical')").run();
     db.prepare("INSERT INTO tasks (id, project_id, title, status, priority) VALUES ('t3', 'p1', 'Done', 'done', 'critical')").run();
 
     const delta = getTaskAndDecisionDelta(db, 'p1', null);
@@ -219,7 +219,7 @@ describe('buildSessionBrief', () => {
   it('returns gap: null and handoff: null with degraded: false for a first-ever session', () => {
     const db = getTestDb();
     seedProject(db, { id: 'p1', name: 'P' });
-    seedTask(db, 'p1', { id: 't1', status: 'in_progress' });
+    seedTask(db, 'p1', { id: 't1', status: 'claimed' });
 
     const brief = buildSessionBrief('p1', 'P');
     expect(brief.gap).toBeNull();
@@ -228,7 +228,7 @@ describe('buildSessionBrief', () => {
     expect(brief.degraded_reasons).toEqual([]);
     expect(brief.git.available).toBe(false);
     // Current-state task sections are unaffected by there being no prior session.
-    expect(brief.tasks.in_progress_now).toEqual([{ id: 't1', title: 'Test Task' }]);
+    expect(brief.tasks.claimed_now).toEqual([{ id: 't1', title: 'Test Task' }]);
   });
 
   it('behaves like today plus a task delta when no repo_path is configured', () => {

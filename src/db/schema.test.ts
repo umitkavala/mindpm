@@ -15,13 +15,16 @@ afterEach(() => {
 });
 
 describe('createSchema', () => {
-  it('creates all 7 tables', () => {
+  it('creates all tables', () => {
     const tables = db
       .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '%_fts%'")
       .all()
       .map((r: any) => r.name)
       .sort();
-    expect(tables).toEqual(['context', 'decisions', 'notes', 'projects', 'sessions', 'task_history', 'tasks']);
+    expect(tables).toEqual([
+      'acceptance_criteria', 'attempts', 'context', 'decisions', 'notes', 'projects', 'sessions', 'specs',
+      'task_criteria', 'task_history', 'tasks',
+    ]);
   });
 
   it('creates expected indexes', () => {
@@ -156,11 +159,11 @@ describe('runMigrations FTS upgrade path', () => {
     `);
 
     createSchema(old);   // adds remaining tables + FTS (triggers attach to the OLD tasks table)
-    runMigrations(old);  // adds seq, rebuilds tasks for in_review (drops triggers), then rebuilds FTS
+    runMigrations(old);  // adds seq, rebuilds tasks for Phase 1 statuses (drops triggers), then rebuilds FTS
 
-    // The tasks table was rebuilt to allow the in_review status.
+    // The tasks table was rebuilt with the handoff statuses.
     const tasksSql = (old.prepare("SELECT sql FROM sqlite_master WHERE name='tasks'").get() as any).sql;
-    expect(tasksSql).toContain('in_review');
+    expect(tasksSql).toContain('needs_verification');
 
     // The row that existed before FTS — and survived the table rebuild — is indexed.
     const hits = old
@@ -176,6 +179,103 @@ describe('runMigrations FTS upgrade path', () => {
     expect(afterRename.n).toBe(1);
 
     old.close();
+  });
+});
+
+describe('runMigrations Phase 1', () => {
+  function legacyDb(): Database.Database {
+    const old = new Database(':memory:');
+    old.pragma('foreign_keys = ON');
+    old.exec(`
+      CREATE TABLE projects (
+        id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, slug TEXT, description TEXT,
+        status TEXT DEFAULT 'active', repo_path TEXT, tech_stack TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE tasks (
+        id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id), seq INTEGER,
+        title TEXT NOT NULL, description TEXT,
+        status TEXT DEFAULT 'todo' CHECK(status IN ('todo', 'in_progress', 'blocked', 'in_review', 'done', 'cancelled')),
+        priority TEXT DEFAULT 'medium' CHECK(priority IN ('critical', 'high', 'medium', 'low')),
+        tags TEXT, parent_task_id TEXT REFERENCES tasks(id), blocked_by TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, completed_at DATETIME
+      );
+      CREATE TABLE task_history (
+        id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id), event TEXT NOT NULL,
+        old_value TEXT, new_value TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE decisions (
+        id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id), task_id TEXT REFERENCES tasks(id),
+        title TEXT NOT NULL, decision TEXT NOT NULL, reasoning TEXT, alternatives TEXT, tags TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+      INSERT INTO projects (id, name, slug) VALUES ('p1', 'P', 'p');
+      INSERT INTO tasks (id, project_id, seq, title, status, blocked_by, completed_at) VALUES
+        ('t1', 'p1', 1, 'Todo task', 'todo', NULL, NULL),
+        ('t2', 'p1', 2, 'Doing task', 'in_progress', NULL, NULL),
+        ('t3', 'p1', 3, 'Blocked task', 'blocked', '["t1"]', NULL),
+        ('t4', 'p1', 4, 'Review task', 'in_review', NULL, NULL),
+        ('t5', 'p1', 5, 'Done task', 'done', NULL, '2026-01-01 00:00:00'),
+        ('t6', 'p1', 6, 'Cancelled task', 'cancelled', NULL, NULL);
+      INSERT INTO task_history (id, task_id, event, old_value, new_value) VALUES ('h1', 't2', 'status_changed', 'todo', 'in_progress');
+      INSERT INTO decisions (id, project_id, title, decision) VALUES ('d1', 'p1', 'Use SQLite', 'SQLite it is');
+    `);
+    return old;
+  }
+
+  it('maps legacy statuses and keeps every row and its data', () => {
+    const old = legacyDb();
+    createSchema(old);
+    runMigrations(old);
+
+    const rows = old.prepare('SELECT id, seq, status, blocked_by, completed_at, max_attempts FROM tasks ORDER BY seq').all();
+    expect(rows).toEqual([
+      { id: 't1', seq: 1, status: 'ready', blocked_by: null, completed_at: null, max_attempts: 3 },
+      { id: 't2', seq: 2, status: 'ready', blocked_by: null, completed_at: null, max_attempts: 3 },
+      { id: 't3', seq: 3, status: 'blocked', blocked_by: '["t1"]', completed_at: null, max_attempts: 3 },
+      { id: 't4', seq: 4, status: 'needs_verification', blocked_by: null, completed_at: null, max_attempts: 3 },
+      { id: 't5', seq: 5, status: 'done', blocked_by: null, completed_at: '2026-01-01 00:00:00', max_attempts: 3 },
+      { id: 't6', seq: 6, status: 'cancelled', blocked_by: null, completed_at: null, max_attempts: 3 },
+    ]);
+    old.close();
+  });
+
+  it('leaves history untouched and adds the additive columns', () => {
+    const old = legacyDb();
+    createSchema(old);
+    runMigrations(old);
+
+    expect(old.prepare("SELECT old_value, new_value, actor FROM task_history WHERE id = 'h1'").get())
+      .toEqual({ old_value: 'todo', new_value: 'in_progress', actor: null });
+    expect(old.prepare("SELECT status, spec_id, superseded_by FROM decisions WHERE id = 'd1'").get())
+      .toEqual({ status: 'active', spec_id: null, superseded_by: null });
+    const projectCols = (old.pragma('table_info(projects)') as { name: string }[]).map(c => c.name);
+    expect(projectCols).toEqual(expect.arrayContaining(['verification_defaults', 'conventions']));
+    expect(() => old.prepare("UPDATE tasks SET status = 'todo' WHERE id = 't1'").run()).toThrow(/CHECK/);
+    old.close();
+  });
+
+  it('is idempotent and keeps foreign keys on', () => {
+    const old = legacyDb();
+    createSchema(old);
+    runMigrations(old);
+    expect(() => runMigrations(old)).not.toThrow();
+    expect(old.pragma('foreign_keys', { simple: true })).toBe(1);
+    expect(old.pragma('foreign_key_check')).toEqual([]);
+    old.close();
+  });
+
+  it('indexes spec text and attempt root causes for search', () => {
+    db.exec(`
+      INSERT INTO projects (id, name) VALUES ('p1', 'P');
+      INSERT INTO tasks (id, project_id, title) VALUES ('t1', 'p1', 'T');
+      INSERT INTO specs (id, project_id, seq, title, objective, why, created_by)
+        VALUES ('s1', 'p1', 1, 'Inactivity timeout', 'Close idle conversations', 'Idle ones hold capacity', 'human:umit');
+      INSERT INTO attempts (id, task_id, attempt_no, actor, claim_token, outcome, root_cause)
+        VALUES ('a1', 't1', 1, 'agent:cli-1', 'tok', 'failed', 'Deadlock in ConversationRepository');
+    `);
+    expect(db.prepare("SELECT rowid FROM specs_fts WHERE specs_fts MATCH 'capacity'").all()).toHaveLength(1);
+    expect(db.prepare("SELECT rowid FROM attempts_fts WHERE attempts_fts MATCH 'deadlock'").all()).toHaveLength(1);
   });
 });
 
