@@ -235,3 +235,52 @@ describe('spec files', () => {
     expect(existsSync(join(repo, 'specs', 'SPEC-1.md'))).toBe(false);
   });
 });
+
+describe('test and command criteria shared between tasks', () => {
+  // The txtk dry run: "exports both functions" sat on both the slugify and the
+  // truncate task, so neither could pass verification alone.
+  const TXTK = {
+    project: 'P', actor: 'agent:architect', title: 'Slug and truncate', objective: 'Add slugify and truncate.', why: 'Dry run.',
+    risk_level: 'low',
+    criteria: [
+      { statement: 'slugify works', verify_kind: 'test', verify_ref: 'slugify' },
+      { statement: 'truncate works', verify_kind: 'test', verify_ref: 'truncate' },
+      { statement: 'Exports both', verify_kind: 'command', verify_ref: 'node -e "require(\'./src\')"' },
+      { statement: 'README documents both', verify_kind: 'review', verify_ref: 'README' },
+    ],
+  };
+
+  it('warns on the task that shares one, naming the other task', async () => {
+    const s = await call('create_spec', TXTK);
+    const first = await call('create_task', { project: 'P', title: 'Add slugify', spec_id: s.key, criteria: ['AC-1.1', 'AC-1.3'] });
+    expect(first).not.toHaveProperty('warnings');
+    const second = await call('create_task', { project: 'P', title: 'Add truncate', spec_id: s.key, criteria: ['AC-1.2', 'AC-1.3', 'AC-1.4'] });
+    expect(second.warnings).toEqual([
+      `AC-1.3 (command) is also on ${first.key}. Each task is verified on its own commit, so attach it only to the task that completes it.`,
+    ]);
+  });
+
+  it('does not warn about review criteria, or tasks that are done or cancelled', async () => {
+    const s = await call('create_spec', TXTK);
+    const first = await call('create_task', { project: 'P', title: 'Add slugify', spec_id: s.key, criteria: ['AC-1.1', 'AC-1.4'] });
+    getTestDb().prepare("UPDATE tasks SET status = 'done' WHERE id = ?").run(first.task_id);
+    const second = await call('create_task', { project: 'P', title: 'Add truncate', spec_id: s.key, criteria: ['AC-1.1', 'AC-1.4'] });
+    expect(second).not.toHaveProperty('warnings');
+  });
+
+  it('warns when update_task attaches a shared one, and not once it is moved off', async () => {
+    const s = await call('create_spec', TXTK);
+    await call('create_task', { project: 'P', title: 'Add slugify', spec_id: s.key, criteria: ['AC-1.1', 'AC-1.3'] });
+    const t = await call('create_task', { project: 'P', title: 'Add truncate', spec_id: s.key, criteria: ['AC-1.2'] });
+    const shared = await call('update_task', { task_id: t.task_id, criteria: ['AC-1.2', 'AC-1.3'] });
+    expect(shared.warnings).toEqual([expect.stringMatching(/^AC-1\.3 \(command\) is also on p-1\./)]);
+    expect(await call('update_task', { task_id: t.task_id, criteria: ['AC-1.2'] })).not.toHaveProperty('warnings');
+  });
+
+  it('warns for every shared one when tasks take all of the spec by default', async () => {
+    const s = await call('create_spec', TXTK);
+    await call('create_task', { project: 'P', title: 'One', spec_id: s.key });
+    const two = await call('create_task', { project: 'P', title: 'Two', spec_id: s.key });
+    expect(two.warnings.map((w: string) => w.slice(0, 6))).toEqual(['AC-1.1', 'AC-1.2', 'AC-1.3']);
+  });
+});

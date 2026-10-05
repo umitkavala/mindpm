@@ -102,6 +102,7 @@ const PHASE1_TABLES = `
       verification_findings TEXT,
       self_report_mismatch INTEGER NOT NULL DEFAULT 0,
       consecutive_errors INTEGER NOT NULL DEFAULT 0,
+      submitted_from TEXT,
       started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       ended_at DATETIME,
       UNIQUE(task_id, attempt_no)
@@ -500,6 +501,7 @@ export function runMigrations(db: Database.Database): void {
   migratePhase1(db);
   migratePhase2(db);
   migrateVerificationSetting(db);
+  migrateSubmittedFrom(db);
 
   // Add session-brief columns to sessions if missing
   const sessionCols = (db.pragma('table_info(sessions)') as { name: string }[]).map(c => c.name);
@@ -550,6 +552,19 @@ export function needsPhase2Migration(db: Database.Database): boolean {
 export function needsVerificationSettingMigration(db: Database.Database): boolean {
   const hasProjects = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='projects'").get();
   return !!hasProjects && !columnsOf(db, 'projects').includes('verification');
+}
+
+// True when this database predates 3.2 and the next runMigrations will add
+// attempts.submitted_from.
+export function needsSubmittedFromMigration(db: Database.Database): boolean {
+  const hasAttempts = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='attempts'").get();
+  return !!hasAttempts && !columnsOf(db, 'attempts').includes('submitted_from');
+}
+
+// 3.2: the connection that submitted an attempt, so that connection can't
+// accept the work under another actor id. Older submissions stay NULL.
+function migrateSubmittedFrom(db: Database.Database): void {
+  if (needsSubmittedFromMigration(db)) db.exec('ALTER TABLE attempts ADD COLUMN submitted_from TEXT');
 }
 
 // 3.1: verification became opt-in per project. Projects an active local

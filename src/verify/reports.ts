@@ -11,7 +11,13 @@ export interface TestCase {
   duration_ms?: number;
   message?: string;
   report: string; // the report file it came from
+  file?: string; // the test file, when the report names it
+  groups?: TestGroup[]; // enclosing <testsuite> elements, outermost first
 }
+
+// One <testsuite> element. Two elements with the same path (the same describe
+// name in two files, say) are different groups.
+export interface TestGroup { id: string; path: string[] }
 
 const ENTITIES: Record<string, string> = { lt: '<', gt: '>', amp: '&', quot: '"', apos: "'" };
 
@@ -32,15 +38,30 @@ function attrs(tag: string): Record<string, string> {
 }
 
 // Tolerant JUnit reader: <testcase classname name time> with an optional
-// <failure>, <error> or <skipped> child. Covers surefire, pytest, vitest,
-// jest-junit and the dotnet JUnit logger.
+// <failure>, <error> or <skipped> child, inside any nesting of <testsuite>.
+// Covers surefire, pytest, vitest, jest-junit, the dotnet JUnit logger and
+// Node's built-in runner (node --test --test-reporter=junit), which puts
+// describe() names only on the enclosing <testsuite>.
 export function parseJunit(xml: string, file: string): TestCase[] {
   const cases: TestCase[] = [];
   const body = xml.replace(/<!--[\s\S]*?-->/g, '');
-  for (const m of body.matchAll(/<testcase\b([^>]*?)(\/>|>([\s\S]*?)<\/testcase>)/g)) {
-    const a = attrs(m[1]);
+  const open: TestGroup[] = [];
+  let suites = 0;
+  const tokens = /<testsuite\b([^>]*?)(\/?)>|<\/testsuite>|<testcase\b([^>]*?)(\/>|>([\s\S]*?)<\/testcase>)/g;
+  for (const m of body.matchAll(tokens)) {
+    if (m[0].startsWith('</')) {
+      open.pop();
+      continue;
+    }
+    if (m[0].startsWith('<testsuite')) {
+      const name = attrs(m[1]).name ?? '';
+      if (!m[2]) open.push({ id: `${file}#${suites}`, path: [...open.map(g => g.path.at(-1)!), name] });
+      suites++;
+      continue;
+    }
+    const a = attrs(m[3]);
     if (!a.name) continue;
-    const inner = m[3] ?? '';
+    const inner = m[5] ?? '';
     let status: TestStatus = 'passed';
     let message: string | undefined;
     const fail = inner.match(/<(failure|error)\b([^>]*?)(\/>|>([\s\S]*?)<\/\1>)/);
@@ -59,6 +80,8 @@ export function parseJunit(xml: string, file: string): TestCase[] {
       ...(Number.isFinite(seconds) ? { duration_ms: Math.round(seconds * 1000) } : {}),
       ...(message ? { message } : {}),
       report: file,
+      ...(a.file ? { file: a.file } : {}),
+      ...(open.length ? { groups: [...open] } : {}),
     });
   }
   return cases;
@@ -84,19 +107,65 @@ export function parseJsonReport(text: string, file: string): TestCase[] {
 
 export type Match =
   | { kind: 'match'; test: TestCase }
+  | { kind: 'group'; path: string[]; tests: TestCase[] }
   | { kind: 'none' }
   | { kind: 'ambiguous'; candidates: string[] };
 
-// verify_ref is compared to classname.name, then to name alone. More than one
-// match is a spec error and is never treated as a pass.
+const SEPARATOR = /\s+>\s+/;
+const endsWith = (path: string[], want: string[]) =>
+  path.length >= want.length && want.every((w, i) => path[path.length - want.length + i] === w);
+
+// verify_ref is compared to classname.name first. Otherwise it is a path,
+// "group > nested group > test" with outer groups optional, naming either a
+// test or a group (a <testsuite> element). More than one candidate is a spec
+// error and is never treated as a pass.
 export function matchTest(cases: TestCase[], ref: string): Match {
   const want = ref.trim();
-  let found = cases.filter(c => c.id === want);
-  if (found.length === 0) found = cases.filter(c => c.name === want);
-  if (found.length === 0) return { kind: 'none' };
-  const ids = [...new Set(found.map(c => `${c.id} (${c.report})`))];
-  if (found.length > 1) return { kind: 'ambiguous', candidates: ids };
-  return { kind: 'match', test: found[0] };
+  const byId = cases.filter(c => c.id === want);
+  if (byId.length === 1) return { kind: 'match', test: byId[0] };
+  if (byId.length > 1) return { kind: 'ambiguous', candidates: [...new Set(byId.map(describeTest))] };
+
+  const segments = want.split(SEPARATOR);
+  const tests = cases.filter(c => endsWith([...(c.groups?.at(-1)?.path ?? []), c.name], segments));
+  const groups = new Map<string, { path: string[]; tests: TestCase[] }>();
+  for (const c of cases) {
+    for (const g of c.groups ?? []) {
+      if (!endsWith(g.path, segments)) continue;
+      if (!groups.has(g.id)) groups.set(g.id, { path: g.path, tests: [] });
+      groups.get(g.id)!.tests.push(c);
+    }
+  }
+  const count = tests.length + groups.size;
+  if (count === 0) return { kind: 'none' };
+  if (count > 1) {
+    return {
+      kind: 'ambiguous',
+      candidates: [
+        ...describeTests(tests),
+        ...[...groups.values()].map(g => `group ${g.path.join(' > ')}${filesOf(g.tests)} (${g.tests[0].report})`),
+      ],
+    };
+  }
+  if (tests.length === 1) return { kind: 'match', test: tests[0] };
+  const [group] = groups.values();
+  return { kind: 'group', path: group.path, tests: group.tests };
+}
+
+// By path, which reads well for node:test; by classname.name where two paths
+// would read the same.
+function describeTests(tests: TestCase[]): string[] {
+  const plain = tests.map(describeTest);
+  return tests.map((c, i) => (plain.indexOf(plain[i]) !== plain.lastIndexOf(plain[i]) ? `${c.id}${c.file ? ` in ${c.file}` : ''} (${c.report})` : plain[i]));
+}
+
+function describeTest(c: TestCase): string {
+  const path = [...(c.groups?.at(-1)?.path ?? []), c.name].join(' > ');
+  return `${path}${c.file ? ` in ${c.file}` : ''} (${c.report})`;
+}
+
+function filesOf(tests: TestCase[]): string {
+  const files = [...new Set(tests.map(t => t.file).filter(Boolean))];
+  return files.length ? ` in ${files.join(', ')}` : '';
 }
 
 export function summarize(cases: TestCase[], file: string, format: string) {

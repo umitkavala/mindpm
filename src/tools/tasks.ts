@@ -9,7 +9,7 @@ import {
   ACTOR_FORMAT_HINT, type TaskStatus,
 } from '../domain/lifecycle.js';
 import { changeStatusAsHuman, normalizeStatus } from '../domain/status-change.js';
-import { criteriaOf, criterionKey, resolveCriteria, resolveSpec, specKey } from '../domain/specs.js';
+import { criteriaOf, criterionKey, resolveCriteria, resolveSpec, sharedCriteriaWarnings, specKey } from '../domain/specs.js';
 import { attemptsLeft, expireLeases } from '../domain/attempts.js';
 import { errorResult, guarded, publicTask } from './results.js';
 
@@ -101,6 +101,7 @@ export function registerTaskTools(server: McpServer): void {
       }).immediate();
 
       const short_id = taskKey(db, id);
+      const warnings = spec ? sharedCriteriaWarnings(db, spec, id) : [];
       return {
         content: [{
           type: 'text' as const,
@@ -110,6 +111,7 @@ export function registerTaskTools(server: McpServer): void {
             key: short_id,
             status,
             ...(spec ? { spec_key: specKey(spec), criteria: linked.map(c => criterionKey(spec, c)) } : {}),
+            ...(warnings.length ? { warnings } : {}),
             message: `Task created: "${title}" in ${resolved.name} (priority: ${priority ?? 'medium'}, status: ${status})`,
           }),
         }],
@@ -197,11 +199,15 @@ export function registerTaskTools(server: McpServer): void {
           setStatus(db, resolvedId, existing.status, 'blocked', parseActor(actor, on_behalf_of) ?? 'system');
         }
       }).immediate();
+      const warnings = linked !== null ? sharedCriteriaWarnings(db, resolveSpec(db, existing.spec_id!), resolvedId) : [];
 
       return {
         content: [{
           type: 'text' as const,
-          text: JSON.stringify({ task_id: resolvedId, message: `Task "${existing.title}" updated.`, ...(warning ? { warning } : {}) }),
+          text: JSON.stringify({
+            task_id: resolvedId, message: `Task "${existing.title}" updated.`, ...(warning ? { warning } : {}),
+            ...(warnings.length ? { warnings } : {}),
+          }),
         }],
       };
     }),

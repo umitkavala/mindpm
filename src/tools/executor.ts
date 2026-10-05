@@ -9,6 +9,7 @@ import { afterUsedAttempt, attemptsLeft, closeClaim, expireLeases, requireLiveCl
 import { buildBrief } from '../domain/brief.js';
 import { criterionKey, specKey, type SpecRow } from '../domain/specs.js';
 import { errorResult, guarded, jsonResult } from './results.js';
+import { connectionId } from '../utils/session-state.js';
 
 const PRIORITY_ORDER = "CASE t.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 END";
 const DEFAULT_LEASE_MINUTES = 30;
@@ -253,6 +254,7 @@ export function registerExecutorTools(server: McpServer): void {
           branch, head_sha, summary,
           files_touched: JSON.stringify(files_touched),
           criteria_results: JSON.stringify(results),
+          submitted_from: connectionId(),
         }, () => 'needs_verification');
       }).immediate();
       return jsonResult({ status });

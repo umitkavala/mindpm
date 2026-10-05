@@ -68,7 +68,8 @@ Edited in the Verifiers tab only. It names every check the verifier runs, where 
 ```
 
 - **Timeout**: 15 minutes per check by default. A timeout is an error, not a failure.
-- **Reports**: JUnit XML (dotnet, Java/surefire, pytest, vitest and jest with a JUnit reporter) or a simple JSON format for runners without JUnit output. A `test` criterion's `verify_ref` is matched against `classname.name`, then `name` alone. A task with test criteria and no configured report ends as an error.
+- **Reports**: JUnit XML (dotnet, Java/surefire, pytest, vitest and jest with a JUnit reporter, and Node's built-in runner with `node --test --test-reporter=junit --test-reporter-destination=junit.xml`) or a simple JSON format for runners without JUnit output. A task with test criteria and no configured report ends as an error.
+- **`test` criteria**: `verify_ref` names one test or one test group. It is matched against `classname.name` first, then read as a path through the report's nested `<testsuite>` groups, `group > nested group > test`, with outer groups optional: `slugify` names a `describe('slugify')` group, `slugify > keeps digits` one test in it, and `keeps digits` the same test by name alone. A group passes when at least one of its tests ran and none failed; skipped tests don't fail it, but a group whose tests were all skipped does. A ref that matches more than one test or group (a group and a test with the same name, or the same group name in two files) is a spec error and never passes. The executor's brief carries this rule as `test_ref_rule`.
 
   ```json
   {

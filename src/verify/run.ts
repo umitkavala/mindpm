@@ -127,17 +127,35 @@ function readReport(worktree: string, path: string, format: 'junit' | 'json'): T
 
 const tail = (s: string, n: number) => (s.length > n ? s.slice(-n) : s);
 
-function testEvidence(ref: string, cases: TestCase[]): { result: CriterionInput['result']; evidence: string } {
+export function testEvidence(ref: string, cases: TestCase[]): { result: CriterionInput['result']; evidence: string } {
   const m = matchTest(cases, ref);
   if (m.kind === 'none') return { result: 'missing', evidence: `No test matching ${ref} ran in the parsed reports.` };
   if (m.kind === 'ambiguous') {
     return { result: 'missing', evidence: tail(`verify_ref ${ref} matches more than one test (a spec error): ${m.candidates.join(', ')}`, 1500) };
   }
+  if (m.kind === 'group') return groupEvidence(m.path, m.tests);
   const t = m.test;
   const time = t.duration_ms !== undefined ? ` in ${t.duration_ms} ms` : '';
   if (t.status === 'passed') return { result: 'pass', evidence: `Test ${t.id} passed${time} (report ${t.report}).` };
   if (t.status === 'skipped') return { result: 'missing', evidence: `Test ${t.id} was skipped (report ${t.report}).` };
   return { result: 'fail', evidence: tail(`Test ${t.id} failed${time} (report ${t.report})${t.message ? `: ${t.message}` : ''}`, 1500) };
+}
+
+// A group passes when at least one of its tests ran and none failed. Skipped
+// tests don't fail it, but a group with nothing run is no evidence.
+function groupEvidence(path: string[], tests: TestCase[]): { result: CriterionInput['result']; evidence: string } {
+  const name = `Group ${path.join(' > ')}`;
+  const report = `report ${tests[0].report}`;
+  const failed = tests.filter(t => t.status === 'failed');
+  const ran = tests.filter(t => t.status !== 'skipped');
+  const skipped = tests.length - ran.length;
+  const skippedNote = skipped ? `, ${skipped} skipped` : '';
+  if (failed.length) {
+    const first = failed[0].message ? `: ${failed[0].message}` : '';
+    return { result: 'fail', evidence: tail(`${name}: ${failed.length} of ${ran.length} tests failed (${failed.map(t => t.name).join(', ')}${first}) (${report}).`, 1500) };
+  }
+  if (ran.length === 0) return { result: 'fail', evidence: `${name}: all ${tests.length} tests were skipped, so nothing was verified (${report}).` };
+  return { result: 'pass', evidence: tail(`${name}: ${ran.length} tests passed${skippedNote} (${report}).`, 1500) };
 }
 
 function reviewPrompt(db: Database.Database, run: StartedRun, diff: string): string {

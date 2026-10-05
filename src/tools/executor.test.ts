@@ -20,6 +20,7 @@ import { changeStatusAsHuman } from '../domain/status-change.js';
 import { UI_ACTOR } from '../domain/lifecycle.js';
 import { acceptTask } from '../domain/verification.js';
 import { registerTestVerifier, runVerification } from '../test-helpers/verifier.js';
+import { newConnectionForTests } from '../utils/session-state.js';
 
 let callTool: ReturnType<typeof createToolCaller>;
 
@@ -75,10 +76,16 @@ async function readyTask(spec: Partial<typeof SPEC> = {}, task: Record<string, u
 }
 
 const passAll = (claim: any) => claim.brief.criteria.map((c: any) => ({ criterion_id: c.key, result: 'pass', evidence: `${c.verify_ref} passed` }));
-const submit = (claim: any, extra: Record<string, unknown> = {}) => call('submit_task', {
-  claim_token: claim.claim_token, branch: 'feature/p-1-inactivity-timeout', head_sha: 'a1b2c3d4e5f6',
-  files_touched: ['src/Sweep.cs'], summary: 'Sweep closes idle conversations.', criteria_results: passAll(claim), ...extra,
-});
+// Submits, then switches connection: the human who accepts works from another
+// session than the executor.
+const submit = async (claim: any, extra: Record<string, unknown> = {}) => {
+  const out = await call('submit_task', {
+    claim_token: claim.claim_token, branch: 'feature/p-1-inactivity-timeout', head_sha: 'a1b2c3d4e5f6',
+    files_touched: ['src/Sweep.cs'], summary: 'Sweep closes idle conversations.', criteria_results: passAll(claim), ...extra,
+  });
+  newConnectionForTests();
+  return out;
+};
 
 describe('executor flow from the Phase 1 doc', () => {
   it('fails once on a deadlock, then succeeds using what the first attempt recorded', async () => {
@@ -458,6 +465,15 @@ describe('pick_task', () => {
 });
 
 describe('task brief', () => {
+  it('explains how verify_ref finds a test, only when the task has test criteria', async () => {
+    const { task } = await readyTask();
+    expect((await call('get_task_brief', { task_id: task.task_id })).test_ref_rule).toMatch(/exactly one test or test group.*slugify > keeps digits/);
+    const { task: other } = await readyTask({
+      title: 'Docs only', criteria: [{ statement: 'README explains the timeout', verify_kind: 'review', verify_ref: 'README section' }],
+    });
+    expect(await call('get_task_brief', { task_id: other.task_id })).not.toHaveProperty('test_ref_rule');
+  });
+
   it('merges task verification over project defaults', async () => {
     const { task } = await readyTask({}, { verification: { unit: 'dotnet test tests/unit --filter Inactivity', lint: 'dotnet format --verify-no-changes' } });
     const brief = await call('get_task_brief', { task_id: task.task_id });

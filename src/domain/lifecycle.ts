@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import { generateId } from '../utils/ids.js';
+import { connectionId } from '../utils/session-state.js';
 
 // Handoff states. A status changes only when ownership or stage changes
 // hands; phases inside one run (implementing, testing) are heartbeat events
@@ -72,6 +73,21 @@ export function assertDelegateMayAct(db: Database.Database, actor: Actor, taskId
   ).get(taskId) as { actor: string } | undefined;
   if ((task?.status === 'needs_verification' || task?.status === 'verified') && submitted?.actor === actor.id) {
     throw new ToolError('forbidden', `${actor.id} submitted this work and cannot accept or move it on behalf of ${actor.onBehalfOf}.`);
+  }
+  assertNotSubmitter(db, actor, taskId);
+}
+
+// Actor ids are declared, so an executor could accept its own work by calling
+// itself human:<name> or another agent id. The connection it submitted from
+// can't be declared: outside the Kanban UI, that connection can't accept or
+// move the submission, whatever actor it names.
+export function assertNotSubmitter(db: Database.Database, actor: Actor, taskId: string): void {
+  if (actor.channel === 'ui') return;
+  const submitted = db.prepare(
+    "SELECT submitted_from FROM attempts WHERE task_id = ? AND outcome = 'submitted' ORDER BY attempt_no DESC LIMIT 1",
+  ).get(taskId) as { submitted_from: string | null } | undefined;
+  if (submitted?.submitted_from && submitted.submitted_from === connectionId()) {
+    throw new ToolError('forbidden', 'This work was submitted from this session, which cannot accept or move it under any actor. Accept it in the Kanban UI or from another session.');
   }
 }
 
