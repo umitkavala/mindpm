@@ -1,14 +1,42 @@
 <script lang="ts">
-  import type { Project, Verifier } from '../lib/types.js';
+  import type { Project, Verifier, VerificationSetup } from '../lib/types.js';
   import { api } from '../lib/api.js';
   import ConfirmDialog from './ConfirmDialog.svelte';
 
   interface Props {
     project: Project;
     projects: Project[];
+    // The project's verification was turned on or off: the board reloads.
+    onVerificationChanged?: () => void;
   }
 
-  let { project, projects }: Props = $props();
+  let { project, projects, onVerificationChanged }: Props = $props();
+
+  let setup: VerificationSetup | null = $state(null);
+  let setupError: string | null = $state(null);
+  let switching = $state(false);
+
+  async function loadSetup() {
+    try {
+      setup = await api.getVerificationSetup(project.id);
+    } catch (e: any) {
+      setupError = e.message;
+    }
+  }
+
+  async function setMode(mode: 'on' | 'off') {
+    setupError = null;
+    switching = true;
+    try {
+      setup = await api.setVerificationMode(project.id, mode);
+      onVerificationChanged?.();
+    } catch (e: any) {
+      setupError = e.message;
+      await loadSetup();
+    } finally {
+      switching = false;
+    }
+  }
 
   let verifiers: Verifier[] = $state([]);
   let error: string | null = $state(null);
@@ -64,7 +92,9 @@
 
   $effect(() => {
     project.id;
+    setupError = null;
     loadConfig();
+    loadSetup();
   });
 
   const projectName = (id: string) => (id === '*' ? 'all projects' : projects.find((p) => p.id === id)?.name ?? id);
@@ -79,6 +109,7 @@
       issued = { name: out.verifier.name, kind: out.verifier.kind, key: out.key };
       name = '';
       await load();
+      await loadSetup();
     } catch (err: any) {
       error = err.message;
     }
@@ -100,6 +131,7 @@
       await api.revokeVerifier(revoking.id);
       revoking = null;
       await load();
+      await loadSetup();
     } catch (e: any) {
       error = e.message;
       revoking = null;
@@ -118,6 +150,7 @@
     try {
       await api.setVerifierConfig(project.id, parsed);
       configStatus = 'Saved.';
+      await loadSetup();
     } catch (e: any) {
       configStatus = e.message;
     }
@@ -125,6 +158,33 @@
 </script>
 
 <div class="view">
+  <section class="block">
+    <h2>Verification · {project.name}</h2>
+    <div class="toggle" role="radiogroup" aria-label="Verification">
+      <button type="button" role="radio" aria-checked={setup?.mode === 'off'} class:on={setup?.mode === 'off'}
+        disabled={switching || !setup} onclick={() => setMode('off')}>Off</button>
+      <button type="button" role="radio" aria-checked={setup?.mode === 'on'} class:on={setup?.mode === 'on'}
+        disabled={switching || !setup} onclick={() => setMode('on')}>On</button>
+    </div>
+    <p class="hint">Off: you accept submitted work directly. On: a verifier must rebuild and test it first.</p>
+    {#if setupError}<p class="err" role="alert">{setupError}</p>{/if}
+    {#if setup?.warning}<p class="warn" role="alert">{setup.warning}</p>{/if}
+    {#if setup?.mode === 'off' && setup.missing.length && !setupError}
+      <p class="hint">To turn it on, this project needs {setup.missing.join(' and ')}. Set them up below.</p>
+    {/if}
+  </section>
+
+  {#if setup?.mode === 'on'}
+    {@render verifierSetup()}
+  {:else if setup}
+    <details class="setup">
+      <summary>Set up verification</summary>
+      <div class="setup-body">{@render verifierSetup()}</div>
+    </details>
+  {/if}
+</div>
+
+{#snippet verifierSetup()}
   <section class="block">
     <h2>Verifiers</h2>
     <p class="hint">
@@ -219,7 +279,7 @@ npx mindpm verify</pre>
       {#if configStatus}<span class="status">{configStatus}</span>{/if}
     </div>
   </section>
-</div>
+{/snippet}
 
 {#if revoking}
   <ConfirmDialog
@@ -261,5 +321,11 @@ npx mindpm verify</pre>
   .issued { border: 1px solid var(--primary); background: var(--primary-dim); border-radius: var(--radius); padding: 12px; display: flex; flex-direction: column; gap: 8px; font-size: 0.75rem; }
   .key-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .key { word-break: break-all; background: var(--bg); padding: 6px 8px; border-radius: var(--radius-sm); flex: 1; min-width: 0; }
+  .toggle { display: inline-flex; align-self: flex-start; border: 1px solid var(--border-bright); border-radius: var(--radius-sm); overflow: hidden; }
+  .toggle button { border: none; border-radius: 0; min-width: 64px; color: var(--text-dim); }
+  .toggle button.on { background: var(--primary); color: var(--bg); }
+  .warn { color: var(--status-verifying, var(--danger)); font-size: 0.75rem; }
+  .setup summary { cursor: pointer; font-size: 0.75rem; color: var(--text-dim); }
+  .setup-body { display: flex; flex-direction: column; gap: 24px; margin-top: 12px; }
   .issued pre { background: var(--bg); padding: 6px 8px; border-radius: var(--radius-sm); color: var(--text-dim); font-size: 0.7rem; }
 </style>

@@ -142,7 +142,7 @@
         {:else if activeView === 'metrics'}
           <MetricsView projectId={selectedProject.id} />
         {:else if activeView === 'verifiers'}
-          <VerifiersView project={selectedProject} {projects} />
+          <VerifiersView project={selectedProject} {projects} onVerificationChanged={loadProjects} />
         {/if}
       {/if}
     </div>

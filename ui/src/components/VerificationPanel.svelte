@@ -28,6 +28,10 @@
   const latest = $derived(data?.runs.find((r) => r.status !== 'superseded') ?? data?.runs[0] ?? null);
   const older = $derived(data ? data.runs.filter((r) => r !== latest) : []);
   const legacy = $derived(task.status === 'needs_verification' && data !== null && !data.submission?.head_sha);
+  // Verification off: a human reviews the submission itself, using the
+  // executor's self-report instead of a verifier run.
+  const direct = $derived(task.status === 'needs_verification' && data?.verification === 'off');
+  const showRuns = $derived(data?.verification === 'on' || task.status !== 'needs_verification');
   const escalation = $derived.by(() => {
     if (!task.escalation) return null;
     try {
@@ -66,7 +70,7 @@
 </script>
 
 <section class="panel" aria-label="Verification">
-  <h3 class="section-heading">Verification</h3>
+  <h3 class="section-heading">{direct ? 'Submission' : 'Verification'}</h3>
 
   {#if loadError}
     <p class="err">{loadError}</p>
@@ -82,11 +86,28 @@
           <div class="warn">The executor reported criteria as passing that the verifier found failing.</div>
         {/if}
       </div>
-    {:else if legacy}
+    {:else if legacy && !direct}
       <p class="muted">Submitted before the verification gate: no commit to verify. You can accept it directly.</p>
     {/if}
 
-    {#if latest}
+    {#if direct}
+      {#if data.submission?.summary}<p class="summary">{data.submission.summary}</p>{/if}
+      {#if data.submission?.criteria_results.length}
+        <ul class="criteria" aria-label="Self-reported criteria">
+          {#each data.submission.criteria_results as c, i (i)}
+            <li class="crit crit-{c.result}">
+              <span class="crit-key">{c.key}</span>
+              <span class="crit-result">{c.result.toUpperCase()}</span>
+              <span class="crit-source">self-reported</span>
+              <div class="crit-evidence">{c.evidence}</div>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+      <p class="muted">Verification is off for this project: check the work yourself, then accept it or send it back.</p>
+    {:else if !showRuns}
+      <!-- nothing: verification is on but this task has no run to show -->
+    {:else if latest}
       <div class="run run-{latest.status}">
         <div class="run-head">{runLabel(latest)}</div>
         {#if latest.error_reason}<div class="run-reason">{latest.error_reason}</div>{/if}
@@ -130,7 +151,7 @@
       <p class="muted">Waiting for a verifier. Run <code>mindpm verify</code> with a verifier key.</p>
     {/if}
 
-    {#if older.length}
+    {#if showRuns && older.length}
       <details class="older">
         <summary>{older.length} earlier run{older.length > 1 ? 's' : ''}</summary>
         <ul>
@@ -141,10 +162,10 @@
       </details>
     {/if}
 
-    {#if task.status === 'verified' || legacy}
+    {#if task.status === 'verified' || legacy || direct}
       <div class="actions">
         <button type="button" class="btn-primary" disabled={busy} onclick={accept}>Accept</button>
-        {#if task.status === 'verified'}
+        {#if task.status === 'verified' || direct}
           <button type="button" class="btn-ghost" disabled={busy} onclick={() => { showReopen = !showReopen; }} aria-expanded={showReopen}>Reopen</button>
         {/if}
       </div>
@@ -191,6 +212,7 @@
   .err { color: var(--danger); font-size: 0.75rem; }
   .warn { color: var(--priority-high); font-size: 0.72rem; margin-top: 4px; }
   .k { color: var(--text-dim); display: inline-block; min-width: 76px; }
+  .summary { font-size: 0.75rem; white-space: pre-wrap; }
   .submission { font-size: 0.75rem; display: flex; flex-direction: column; gap: 2px; }
   .run { border: 1px solid var(--border); border-radius: var(--radius); padding: 8px; display: flex; flex-direction: column; gap: 8px; }
   .run-passed { border-color: color-mix(in srgb, var(--status-verified) 50%, transparent); }

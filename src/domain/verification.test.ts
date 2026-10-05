@@ -38,7 +38,8 @@ beforeEach(() => {
   registerProjectTools(server);
   callTool = createToolCaller(server);
   seedProject(db(), { id: 'p1', name: 'P' });
-  db().prepare(`UPDATE projects SET slug = 'p' WHERE id = 'p1'`).run();
+  // These tests cover the gate itself (verification on); the opt-out has its own file.
+  db().prepare(`UPDATE projects SET slug = 'p', verification = 'on' WHERE id = 'p1'`).run();
   setVerifierConfig(db(), 'p1', { checks: { build: { command: 'dotnet build' }, unit: { command: 'dotnet test' } } }, UI_ACTOR);
 });
 

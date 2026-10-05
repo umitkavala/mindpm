@@ -36,7 +36,7 @@ beforeEach(() => {
   const db = getTestDb();
   seedProject(db, { id: 'p1', name: 'P', tech_stack: 'C#, .NET 9, PostgreSQL' });
   db.prepare(
-    `UPDATE projects SET slug = 'p', conventions = 'Async all the way down.',
+    `UPDATE projects SET slug = 'p', verification = 'on', conventions = 'Async all the way down.',
      verification_defaults = '{"build":"dotnet build","unit":"dotnet test tests/unit"}' WHERE id = 'p1'`,
   ).run();
 });

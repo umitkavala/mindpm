@@ -6,6 +6,8 @@ export interface Project {
   status: 'active' | 'paused' | 'completed' | 'archived';
   repo_path: string | null;
   tech_stack: string | null;
+  // Off: a human accepts submitted work directly. On: a verifier must pass it first.
+  verification?: 'off' | 'on';
   created_at: string;
   updated_at: string;
   task_counts?: { status: string; count: number }[];
@@ -76,6 +78,7 @@ export interface VerificationRun {
 export interface TaskVerification {
   status: TaskStatus;
   risk_level: RiskLevel;
+  verification: 'off' | 'on';
   verified_run_id: string | null;
   submission: {
     attempt_no: number;
@@ -194,3 +197,10 @@ export const STATUS_CHIP: Record<TaskStatus, string> = {
 };
 
 export const PRIORITY_ORDER: TaskPriority[] = ['critical', 'high', 'medium', 'low'];
+
+export interface VerificationSetup {
+  mode: 'off' | 'on';
+  // What turning it on still needs; empty when it can be turned on.
+  missing: string[];
+  warning: string | null;
+}

@@ -72,7 +72,7 @@ beforeEach(async () => {
   g('checkout', '-q', '-b', 'feature/p-1');
 
   seedProject(db(), { id: 'p1', name: 'P', repo_path: repo });
-  db().prepare('UPDATE projects SET slug = ? WHERE id = ?').run('p', 'p1');
+  db().prepare("UPDATE projects SET slug = ?, verification = 'on' WHERE id = ?").run('p', 'p1');
   setVerifierConfig(db(), 'p1', {
     checks: {
       unit: { command: 'node test.mjs', report: { path: 'reports/junit.xml', format: 'junit' } },

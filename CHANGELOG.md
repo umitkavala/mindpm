@@ -1,5 +1,29 @@
 # Changelog
 
+## 3.1.0
+
+Verification is opt-in per project, and off by default. While a human reviews every submission, the gate adds setup without catching much; it stays fully intact for agents that run unattended.
+
+### Changed
+
+- New per-project setting `verification`, `off` (default) or `on`, changed only in the Kanban UI's Verifiers tab. No MCP tool can change it.
+- **Off**: a human accepts submitted work straight from `needs_verification` to `done`, under the same rules as verified work: low risk in a batch on the board or with `accept_tasks` and `on_behalf_of`, medium and high risk in the UI only. An agent still can't accept work it submitted. **Reopen** with findings sends it back to `ready` and uses an attempt (UI only). `pending_verifications` returns nothing for the project and `start_verification` is refused.
+- **On**: exactly the 3.0 behaviour. Turning it on requires a `local` verifier key that covers the project and a saved verifier config with at least one check. Revoking the last key leaves it on, and the tab shows a warning.
+- Switching: off → on, tasks already in `needs_verification` wait for the verifier; on → off, they can be accepted directly and `verified` tasks stay acceptable. A run in progress on a task accepted or reopened directly is superseded.
+- Session brief `awaiting_acceptance` includes submitted tasks when verification is off. The task brief has `verifier_checks` only when it is on.
+- Kanban: with verification off, Review lane cards in `needs_verification` show Accept and Reopen, and the batch counts low-risk ones. The task modal shows the executor's self-reported criteria instead of a verifier run.
+- The README's verification guide moved to [docs/advanced-verification.md](docs/advanced-verification.md).
+
+### Added
+
+- `GET` and `PUT /api/projects/:id/verification`, and a `project_history` table recording each switch with its actor.
+- `npm run preview`: builds, copies your database to a temporary file and serves the UI on port 3132, with no MCP client attached.
+
+### Notes
+
+- Migration: projects that an active `local` verifier key covers (directly or with `*`) are set to `on`, all others to `off`. The server first copies the database to `<db>.pre-3.1.0`.
+- Agent instructions are now version 3.1.0; `AGENT.md` is rewritten on start.
+
 ## 3.0.0
 
 Phase 2, the verification gate: done now means independently verified. A registered verifier reruns the checks itself from a clean checkout of the submitted commit, and a human accepts every task into done.

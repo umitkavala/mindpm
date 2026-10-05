@@ -2,7 +2,7 @@ import type Database from 'better-sqlite3';
 import { resolveRepoPath } from '../db/queries.js';
 import { buildFtsAnyMatch, ftsReady } from '../utils/fts.js';
 import { attemptsUsed, maxAttempts } from './attempts.js';
-import { plannedChecks } from './verification.js';
+import { plannedChecks, verificationMode } from './verification.js';
 import { parseIdList, ToolError } from './lifecycle.js';
 import { criterionKey, parseJsonArray, specKey, type CriterionRow, type SpecRow } from './specs.js';
 
@@ -30,9 +30,10 @@ export interface TaskBrief {
   criteria: { id: string; key: string; statement: string; verify_kind: string; verify_ref: string | null }[];
   project: { name: string; tech_stack: string | null; conventions: string | null; repo_path: string | null };
   // Commands for the executor to run. Hints only: the verifier runs
-  // verifier_checks, which only a human can change.
+  // verifier_checks, which only a human can change. Present only when the
+  // project's verification is on.
   verification: Record<string, string>;
-  verifier_checks: { name: string; command: string }[];
+  verifier_checks?: { name: string; command: string }[];
   decisions: Omit<BriefDecision, 'source' | 'id'>[];
   dependencies: { key: string; title: string; status: string }[];
   previous_attempts: BriefAttempt[];
@@ -166,7 +167,7 @@ export function buildBrief(db: Database.Database, taskId: string): TaskBrief {
       repo_path: resolveRepoPath(task.project_id),
     },
     verification: { ...parseObject(task.verification_defaults), ...parseObject(task.verification) },
-    verifier_checks: plannedChecks(db, task.project_id),
+    ...(verificationMode(db, task.project_id) === 'on' ? { verifier_checks: plannedChecks(db, task.project_id) } : {}),
     decisions: [],
     dependencies,
     previous_attempts: previous,

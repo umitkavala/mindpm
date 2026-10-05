@@ -9,8 +9,8 @@ import { expireLeases } from '../domain/attempts.js';
 import { publicTask } from '../tools/results.js';
 import { resolveNeedsHuman, type Resolution } from '../domain/needs-human.js';
 import {
-  acceptTasks, expireRuns, listVerifiers, registerVerifier, reopenTask, revokeVerifier, runsForTask, setVerifierConfig, verifierConfig,
-  type VerifierKind,
+  acceptTasks, expireRuns, listVerifiers, registerVerifier, reopenTask, revokeVerifier, runsForTask, setVerificationMode, setVerifierConfig,
+  verificationMode, verificationSetup, verifierConfig, type VerifierKind,
 } from '../domain/verification.js';
 
 // Anything reaching the HTTP port is the local Kanban UI and counts as a
@@ -456,6 +456,22 @@ const putVerifierConfig: RouteHandler = async (req, res, params) => {
   await withToolErrors(res, () => sendJson(res, 200, setVerifierConfig(getDb(), params.pid, body, UI_ACTOR)));
 };
 
+// Whether the project's verification gate is on, and what turning it on
+// still needs (or, when on, what it lost, e.g. its last key).
+const getVerificationSetup: RouteHandler = async (_req, res, params) => {
+  const db = getDb();
+  if (!db.prepare('SELECT 1 FROM projects WHERE id = ?').get(params.pid)) {
+    sendJson(res, 404, { error: 'Project not found' });
+    return;
+  }
+  sendJson(res, 200, verificationSetup(db, params.pid));
+};
+
+const putVerificationSetup: RouteHandler = async (req, res, params) => {
+  const body = await parseBody(req);
+  await withToolErrors(res, () => sendJson(res, 200, setVerificationMode(getDb(), params.pid, body.mode, UI_ACTOR)));
+};
+
 const getTaskVerification: RouteHandler = async (_req, res, params) => {
   const db = getDb();
   const id = resolveTaskId(params.id);
@@ -464,8 +480,8 @@ const getTaskVerification: RouteHandler = async (_req, res, params) => {
     return;
   }
   expireRuns(db);
-  const task = db.prepare('SELECT t.status, t.verified_run_id, t.spec_id, s.risk_level FROM tasks t LEFT JOIN specs s ON s.id = t.spec_id WHERE t.id = ?')
-    .get(id) as { status: string; verified_run_id: string | null; spec_id: string | null; risk_level: string | null };
+  const task = db.prepare('SELECT t.status, t.project_id, t.verified_run_id, t.spec_id, s.risk_level FROM tasks t LEFT JOIN specs s ON s.id = t.spec_id WHERE t.id = ?')
+    .get(id) as { status: string; project_id: string; verified_run_id: string | null; spec_id: string | null; risk_level: string | null };
   const attempt = db.prepare(
     `SELECT attempt_no, actor, head_sha, branch, summary, criteria_results, verification_outcome, self_report_mismatch, ended_at
      FROM attempts WHERE task_id = ? AND outcome = 'submitted' ORDER BY attempt_no DESC LIMIT 1`,
@@ -473,6 +489,7 @@ const getTaskVerification: RouteHandler = async (_req, res, params) => {
   sendJson(res, 200, {
     status: task.status,
     risk_level: task.risk_level ?? 'medium',
+    verification: verificationMode(db, task.project_id),
     verified_run_id: task.verified_run_id,
     submission: attempt ? { ...attempt, criteria_results: attempt.criteria_results ? JSON.parse(String(attempt.criteria_results)) : [] } : null,
     runs: runsForTask(db, id),
@@ -527,6 +544,8 @@ const routes: Route[] = [
   { method: 'POST', pattern: '/api/verifiers/:id/revoke', handler: revokeVerifierRoute },
   { method: 'GET', pattern: '/api/projects/:pid/verifier-config', handler: getVerifierConfig },
   { method: 'PUT', pattern: '/api/projects/:pid/verifier-config', handler: putVerifierConfig },
+  { method: 'GET', pattern: '/api/projects/:pid/verification', handler: getVerificationSetup },
+  { method: 'PUT', pattern: '/api/projects/:pid/verification', handler: putVerificationSetup },
 ];
 
 export async function handleApiRequest(
