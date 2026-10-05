@@ -142,3 +142,4 @@ vite.config.ts.timestamp-*
 mcp-publisher
 site/
 .venv/
+.serena/project.yml

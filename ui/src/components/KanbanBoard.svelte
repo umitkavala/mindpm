@@ -605,6 +605,9 @@
     display: grid;
     grid-template-columns: repeat(5, minmax(200px, 1fr));
     gap: 10px;
+    /* A definite row height, so each lane's max-height caps it and its
+       card list scrolls instead of the lane growing past the screen. */
+    grid-template-rows: 100%;
     align-items: start;
     height: 100%;
   }
