@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.1.2
+
+### Fixed
+
+- Kanban: columns with more tasks than fit on screen now scroll. In the grouped view a lane grew past the window with no scrollbar, and in the all-statuses view the columns' bottoms were cut off, so the overflowing tasks couldn't be reached.
+
+### Docs
+
+- The documentation site is built with MkDocs Material, and its diagrams are Mermaid instead of ASCII art.
+
 ## 3.1.1
 
 Documentation only; no code changes.

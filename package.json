@@ -1,6 +1,6 @@
 {
   "name": "mindpm",
-  "version": "3.1.1",
+  "version": "3.1.2",
   "description": "Project memory and a control plane for AI coding agents, over MCP.",
   "homepage": "https://umitkavala.github.io/mindpm/",
   "type": "module",
