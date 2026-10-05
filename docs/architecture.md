@@ -1,16 +1,31 @@
 # How it works
 
+Everything runs on your machine. The MCP client and the board talk to the mindpm server; the server and `mindpm verify` share one SQLite file.
+
+```mermaid
+flowchart TB
+    subgraph you["You and your agents"]
+        direction LR
+        client["MCP client<br/>Claude Code, Cursor, ..."]
+        board["Kanban board<br/>localhost:3131"]
+        verify["mindpm verify<br/>optional, own terminal"]
+    end
+    server["mindpm server"]
+    subgraph disk["On disk"]
+        direction LR
+        db[("memory.db<br/>SQLite")]
+        repo[("your git repo")]
+    end
+
+    client -->|MCP tools over stdio| server
+    board -->|HTTP + UI token| server
+    server -->|read / write| db
+    server -.->|git history for the brief| repo
+    verify -->|verifier key| db
+    verify -.->|checkout of the submitted commit| repo
 ```
-┌─────────────┐     MCP      ┌─────────┐     SQLite     ┌──────────┐
-│  Claude Code │ ◄──────────► │ mindpm  │ ◄────────────► │ memory.db│
-│  / Desktop   │   tools      │ server  │   read/write   │          │
-└─────────────┘               └─────────┘                └──────────┘
-                                                               ▲
-┌──────────────────────────┐   verifier key, read/write        │
-│ mindpm verify            │ ──────────────────────────────────┘
-│ (own terminal / service) │ ── git worktree at head_sha, runs checks
-└──────────────────────────┘
-```
+
+A typical session:
 
 1. You start a conversation and mention your project
 2. The LLM calls `start_session` → gets full context
