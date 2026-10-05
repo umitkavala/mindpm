@@ -30,4 +30,4 @@ The board writes to your database as `human:ui`, so the port is locked down:
 
 See [Security model](security.md) for what this does and doesn't protect against.
 
-[← Documentation](README.md)
+[← Documentation](index.md)

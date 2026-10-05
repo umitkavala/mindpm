@@ -37,7 +37,7 @@ LLM: [queries mindpm] "Last session you finished the auth refactor.
 claude mcp add mindpm -e MINDPM_DB_PATH=~/.mindpm/memory.db -- npx -y mindpm
 ```
 
-That's Claude Code, and `npx` fetches mindpm, so there's nothing to install first. [Claude Desktop, Cursor, VS Code, Cline and Windsurf](https://github.com/umitkavala/mindpm/blob/main/docs/setup.md#configure-your-mcp-client) use the same JSON config in a different file. Then just talk about your project. The LLM calls `start_session` to load its context, records tasks, decisions and notes as you go, and calls `end_session` to save what's next. A Kanban board runs at `http://localhost:3131`.
+That's Claude Code, and `npx` fetches mindpm, so there's nothing to install first. [Claude Desktop, Cursor, VS Code, Cline and Windsurf](https://umitkavala.github.io/mindpm/setup.html#configure-your-mcp-client) use the same JSON config in a different file. Then just talk about your project. The LLM calls `start_session` to load its context, records tasks, decisions and notes as you go, and calls `end_session` to save what's next. A Kanban board runs at `http://localhost:3131`.
 
 ## How it works
 
@@ -50,18 +50,20 @@ That's Claude Code, and `npx` fetches mindpm, so there's nothing to install firs
 
 Everything stays on your machine, in one SQLite file (`~/.mindpm/memory.db` by default). mindpm can also hand specced tasks to coding agents with no conversation context: claims with leases keep parallel agents from colliding, and you accept submitted work on the board. For agents that run unattended, an optional verifier reruns the checks on each submitted commit first.
 
-**Security:** mindpm has no user accounts and can't stop a process on your own machine. An agent with a shell can call the board's routes as you or edit the database directly. Read the [security model](https://github.com/umitkavala/mindpm/blob/main/docs/security.md) before you let agents run unattended.
+**Security:** mindpm has no user accounts and can't stop a process on your own machine. An agent with a shell can call the board's routes as you or edit the database directly. Read the [security model](https://umitkavala.github.io/mindpm/security.html) before you let agents run unattended.
 
 ## Documentation
 
-- [Setup](https://github.com/umitkavala/mindpm/blob/main/docs/setup.md): every MCP client, agent instructions for any LLM, storage
-- [Kanban board](https://github.com/umitkavala/mindpm/blob/main/docs/kanban-board.md): lanes, accepting work, network binding and WSL
-- [Session brief](https://github.com/umitkavala/mindpm/blob/main/docs/session-brief.md): what changed while you were away
-- [Agent execution](https://github.com/umitkavala/mindpm/blob/main/docs/agent-execution.md): lifecycle, specs, claims and briefs
-- [Advanced: unattended agents and verification](https://github.com/umitkavala/mindpm/blob/main/docs/advanced-verification.md)
-- [Security model](https://github.com/umitkavala/mindpm/blob/main/docs/security.md)
-- [MCP tools](https://github.com/umitkavala/mindpm/blob/main/docs/tools.md)
-- [Development](https://github.com/umitkavala/mindpm/blob/main/docs/development.md)
+Full documentation: **https://umitkavala.github.io/mindpm/**
+
+- [Setup](https://umitkavala.github.io/mindpm/setup.html): every MCP client, agent instructions for any LLM, storage
+- [Kanban board](https://umitkavala.github.io/mindpm/kanban-board.html): lanes, accepting work, network binding and WSL
+- [Session brief](https://umitkavala.github.io/mindpm/session-brief.html): what changed while you were away
+- [Agent execution](https://umitkavala.github.io/mindpm/agent-execution.html): lifecycle, specs, claims and briefs
+- [Advanced: unattended agents and verification](https://umitkavala.github.io/mindpm/advanced-verification.html)
+- [Security model](https://umitkavala.github.io/mindpm/security.html)
+- [MCP tools](https://umitkavala.github.io/mindpm/tools.html)
+- [Development](https://umitkavala.github.io/mindpm/development.html)
 - [Changelog](https://github.com/umitkavala/mindpm/blob/main/CHANGELOG.md)
 
 ## License

@@ -18,4 +18,4 @@ node dist/index.js        # in one terminal (keep stdin open, e.g. under your MC
 npm run dev:ui            # in another; its proxy sends the token and the server's origin
 ```
 
-[← Documentation](README.md)
+[← Documentation](index.md)

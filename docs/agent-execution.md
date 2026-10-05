@@ -28,4 +28,4 @@ Work an agent submits waits in `needs_verification` for you. Accept it, or reope
 
 **Verification (optional, for unattended agents).** Turn it on per project in the **Verifiers** tab, and a registered verifier must rebuild and test each submitted commit in a clean checkout before you can accept it. It is off by default. See [Advanced: unattended agents and verification](advanced-verification.md).
 
-[← Documentation](README.md)
+[← Documentation](index.md)

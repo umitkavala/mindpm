@@ -86,4 +86,4 @@ These require a verifier key. `mindpm verify` uses them through the database dir
 | `get_blockers` | All blocked tasks with what's blocking them |
 | `search` | Full-text search across tasks, notes, decisions, specs and attempt root causes |
 
-[← Documentation](README.md)
+[← Documentation](index.md)

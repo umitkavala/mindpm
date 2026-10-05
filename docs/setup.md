@@ -107,4 +107,4 @@ Database and tables are created automatically on first run. Before a migration c
 
 Verifier keys are stored only as SHA-256 hashes.
 
-[← Documentation](README.md)
+[← Documentation](index.md)

@@ -9,4 +9,4 @@
 - [Security model](security.md): what mindpm does and doesn't protect against
 - [MCP tools](tools.md): every tool, by group
 - [Development](development.md): building, the preview server and UI development
-- [Changelog](../CHANGELOG.md)
+- [Changelog](https://github.com/umitkavala/mindpm/blob/main/CHANGELOG.md)

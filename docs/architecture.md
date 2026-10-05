@@ -30,4 +30,4 @@
 - **Context** — key-value pairs (tech stack, conventions, config)
 - **Sessions** — what was done, what's next
 
-[← Documentation](README.md)
+[← Documentation](index.md)
