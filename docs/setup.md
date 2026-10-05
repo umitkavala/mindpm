@@ -106,5 +106,3 @@ Override with `MINDPM_DB_PATH` or `PROJECT_MEMORY_DB_PATH` environment variable.
 Database and tables are created automatically on first run. Before a migration changes an existing database, the server saves a copy next to it: `<db>.pre-2.0.0` before the 2.0.0 tasks-table rebuild, `<db>.pre-3.0.0` before the 3.0.0 verification tables, `<db>.pre-3.1.0` before the 3.1.0 per-project verification setting. An existing backup is never overwritten.
 
 Verifier keys are stored only as SHA-256 hashes.
-
-[← Documentation](index.md)

@@ -29,5 +29,3 @@ The board writes to your database as `human:ui`, so the port is locked down:
 - **Never combine mirrored mode with `MINDPM_HOST=0.0.0.0`.** In mirrored mode, `0.0.0.0` is your real network interface, so anyone on your LAN can reach the board and act as `human:ui`.
 
 See [Security model](security.md) for what this does and doesn't protect against.
-
-[← Documentation](index.md)
