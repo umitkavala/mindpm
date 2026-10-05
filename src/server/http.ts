@@ -248,8 +248,9 @@ export function startHttpServer(port: number, host = bindHost()): Server {
       // WSL2's default NAT networking doesn't forward loopback-bound ports to
       // Windows, so a Windows browser gets "connection refused".
       process.stderr.write(
-        '[mindpm] Running under WSL: a Windows browser can\'t reach a server bound to 127.0.0.1 with NAT networking. ' +
-          'Set MINDPM_HOST=0.0.0.0 (WSL\'s NAT keeps it off your LAN) or use networkingMode=mirrored in .wslconfig.\n',
+        '[mindpm] Running under WSL: with NAT networking a Windows browser can\'t reach a server bound to 127.0.0.1. ' +
+          'Prefer networkingMode=mirrored in .wslconfig (no MINDPM_HOST needed). Under NAT, MINDPM_HOST=0.0.0.0 also works, ' +
+          'but never combine it with mirrored mode: there 0.0.0.0 is your real network interface and the board is on your LAN.\n',
       );
     }
     if (WILDCARD_HOSTS.includes(host)) {
