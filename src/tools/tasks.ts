@@ -1,5 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod/v4';
+import { runsForTask } from '../domain/verification.js';
 import type Database from 'better-sqlite3';
 import { getDb, generateId, resolveProjectOrDefault, resolveProjectError, recordTaskHistory, resolveTaskId } from '../db/queries.js';
 import { maybeAutoSession } from './auto-session.js';
@@ -297,15 +298,24 @@ export function registerTaskTools(server: McpServer): void {
             .map(c => ({ id: c.id, key: criterionKey(spec, c), statement: c.statement }))
         : [];
       const attempts = db.prepare(
-        `SELECT attempt_no, actor, outcome, failure_type, root_cause, notes, escalation, review_decision, review_findings, branch, head_sha, started_at, ended_at
+        `SELECT attempt_no, actor, outcome, failure_type, root_cause, notes, escalation, review_decision, review_findings, branch, head_sha,
+           verification_outcome, self_report_mismatch, started_at, ended_at
          FROM attempts WHERE task_id = ? ORDER BY attempt_no`,
       ).all(resolvedId);
+      // Run summaries; output tails and reports stay in the UI.
+      const verificationRuns = runsForTask(db, resolvedId).map(r => ({
+        id: r.id, attempt_no: r.attempt_no, verifier: r.verifier, head_sha: r.head_sha, status: r.status, error_reason: r.error_reason,
+        started_at: r.started_at, ended_at: r.ended_at,
+        checks: r.checks.map(c => ({ name: c.name, exit_code: c.exit_code })),
+        criteria: r.criteria.map(c => ({ key: c.key, result: c.result, source: c.source })),
+      }));
 
       const resultText = JSON.stringify({
         task: publicTask(task),
         ...(spec ? { spec: { key: specKey(spec), title: spec.title, status: spec.status, version: spec.version, risk_level: spec.risk_level }, criteria } : {}),
         attempts,
         attempts_left: attemptsLeft(db, task as { id: string; max_attempts: number | null }),
+        ...(verificationRuns.length ? { verification_runs: verificationRuns } : {}),
         subtasks,
         notes,
       }, null, 2);

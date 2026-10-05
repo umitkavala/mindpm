@@ -22,8 +22,8 @@ describe('createSchema', () => {
       .map((r: any) => r.name)
       .sort();
     expect(tables).toEqual([
-      'acceptance_criteria', 'attempts', 'context', 'decisions', 'notes', 'projects', 'sessions', 'specs',
-      'task_criteria', 'task_history', 'tasks',
+      'acceptance_criteria', 'attempts', 'check_results', 'context', 'criterion_results', 'decisions', 'notes', 'projects', 'sessions', 'specs',
+      'task_criteria', 'task_history', 'tasks', 'verification_runs', 'verifiers',
     ]);
   });
 

@@ -1,8 +1,9 @@
 <script lang="ts">
-  import type { Project, Task, TaskStatus, TaskPriority } from '../lib/types.js';
-  import { COLUMNS } from '../lib/types.js';
+  import type { Project, Task, TaskStatus, TaskPriority, LaneId } from '../lib/types.js';
+  import { COLUMNS, LANES } from '../lib/types.js';
   import { api } from '../lib/api.js';
   import KanbanColumn from './KanbanColumn.svelte';
+  import KanbanLane from './KanbanLane.svelte';
   import TaskModal from './TaskModal.svelte';
   import ConfirmDialog from './ConfirmDialog.svelte';
   import FilterBar from './FilterBar.svelte';
@@ -11,11 +12,43 @@
     project: Project;
     triggerNewTask?: boolean;
     openTask?: Task | null;
+    // A task key from the URL (?task=mndp-12), as in the session brief's links.
+    openTaskKey?: string | null;
     onNewTaskTriggered?: () => void;
     onOpenTaskHandled?: () => void;
+    onOpenTaskKeyHandled?: () => void;
   }
 
-  let { project, triggerNewTask = false, openTask = null, onNewTaskTriggered, onOpenTaskHandled }: Props = $props();
+  let {
+    project, triggerNewTask = false, openTask = null, openTaskKey = null, onNewTaskTriggered, onOpenTaskHandled, onOpenTaskKeyHandled,
+  }: Props = $props();
+
+  // Board view preferences, kept per browser.
+  function pref<T>(key: string, fallback: T): T {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw === null ? fallback : (JSON.parse(raw) as T);
+    } catch {
+      return fallback;
+    }
+  }
+  function savePref(key: string, value: unknown) {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch {}
+  }
+
+  let viewMode = $state<'grouped' | 'all'>(pref('mindpm_board_view', 'grouped'));
+  let doneDays = $state<number>(pref('mindpm_done_days', 7));
+  let showCancelled = $state<boolean>(pref('mindpm_show_cancelled', false));
+  $effect(() => savePref('mindpm_board_view', viewMode));
+  $effect(() => savePref('mindpm_done_days', doneDays));
+  $effect(() => savePref('mindpm_show_cancelled', showCancelled));
+
+  // Non-fatal messages (a refused move or accept) shown above the board.
+  let notice: string | null = $state(null);
+  // Low-risk verified cards are in the batch unless unchecked.
+  let batchExcluded = $state(new Set<string>());
 
   let tasks: Task[] = $state([]);
   let loading = $state(true);
@@ -99,10 +132,91 @@
 
   const PRIORITY_RANK: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
 
-  // Group filtered tasks by status; done/cancelled sorted by updated_at desc, others by priority
+  function withinDoneWindow(t: Task): boolean {
+    if (doneDays === 0) return true;
+    const at = t.completed_at ?? t.updated_at;
+    if (!at) return true;
+    return new Date(at.replace(' ', 'T') + 'Z').getTime() >= Date.now() - doneDays * 86_400_000;
+  }
+
+  // Done tasks loaded but outside the window, for "Show older".
+  const hiddenDone = $derived(tasks.filter((t) => t.status === 'done' && !withinDoneWindow(t)).length);
+
+  function sortTasks(list: Task[], terminal: boolean): Task[] {
+    if (terminal) return list.sort((a, b) => (b.completed_at ?? b.updated_at ?? '').localeCompare(a.completed_at ?? a.updated_at ?? ''));
+    return list.sort((a, b) => {
+      const pd = (PRIORITY_RANK[a.priority] ?? 3) - (PRIORITY_RANK[b.priority] ?? 3);
+      return pd !== 0 ? pd : (b.created_at ?? '').localeCompare(a.created_at ?? '');
+    });
+  }
+
+  const visibleTasks = $derived(filteredTasks().filter((t) => (t.status === 'done' ? withinDoneWindow(t) : true)));
+
+  const lanes = $derived(
+    LANES.map((lane) => ({
+      ...lane,
+      tasks: sortTasks(visibleTasks.filter((t) => lane.statuses.includes(t.status)), lane.id === 'done'),
+    })),
+  );
+
+  const lowRiskBatch = $derived(
+    lanes.find((l) => l.id === 'review')!.tasks.filter((t) => t.status === 'verified' && t.risk_level === 'low' && !batchExcluded.has(t.id)),
+  );
+
+  const keyOf = $derived(new Map(tasks.map((t) => [t.id, t.short_id ?? t.id])));
+  function blockerKeys(t: Task): string[] {
+    try {
+      const ids = JSON.parse(t.blocked_by ?? '[]');
+      return Array.isArray(ids) ? ids.map((id: string) => keyOf.get(id) ?? id) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function cardExtras(t: Task) {
+    if (t.status === 'verified' && t.risk_level === 'low') {
+      return {
+        batch: {
+          checked: !batchExcluded.has(t.id),
+          onToggle: (task: Task) => {
+            const next = new Set(batchExcluded);
+            if (next.has(task.id)) next.delete(task.id); else next.add(task.id);
+            batchExcluded = next;
+          },
+        },
+      };
+    }
+    if (t.status === 'verified') return { onAccept: acceptOne, onReopen: openEditModal };
+    if (t.status === 'needs_human') return { onResolve: openEditModal };
+    if (t.status === 'blocked') return { blockerKeys: blockerKeys(t) };
+    return {};
+  }
+
+  async function acceptOne(task: Task) {
+    notice = null;
+    try {
+      await api.acceptTask(task.id);
+      await loadTasks();
+    } catch (e: any) {
+      notice = e.message;
+    }
+  }
+
+  async function acceptBatch() {
+    notice = null;
+    try {
+      const out = await api.acceptTasks(lowRiskBatch.map((t) => t.id));
+      if (out.refused.length) notice = out.refused.map((r) => `${keyOf.get(r.task_id) ?? r.task_id}: ${r.reason}`).join(' ');
+      await loadTasks();
+    } catch (e: any) {
+      notice = e.message;
+    }
+  }
+
+  // Group filtered tasks by status; done/cancelled sorted by recency, others by priority
   const tasksByStatus = $derived(
-    COLUMNS.map((col) => {
-      const colTasks = filteredTasks().filter((t) => t.status === col.status);
+    COLUMNS.filter((col) => col.status !== 'cancelled' || showCancelled).map((col) => {
+      const colTasks = visibleTasks.filter((t) => t.status === col.status);
       if (col.status === 'done' || col.status === 'cancelled') {
         colTasks.sort((a, b) => (b.updated_at ?? '').localeCompare(a.updated_at ?? ''));
       } else {
@@ -168,8 +282,20 @@
     }
   });
 
-  async function loadTasks() {
-    loading = true;
+  // Open a task named in the URL once the board has loaded.
+  $effect(() => {
+    if (!openTaskKey || loading) return;
+    const key = openTaskKey.toLowerCase();
+    const match = tasks.find((t) => t.short_id?.toLowerCase() === key || t.id === openTaskKey);
+    if (match) {
+      editingTask = match;
+      showModal = true;
+    }
+    onOpenTaskKeyHandled?.();
+  });
+
+  async function loadTasks(quiet = false) {
+    if (!quiet) loading = true;
     error = null;
     try {
       const [active, done, cancelled] = await Promise.all([
@@ -196,7 +322,7 @@
       tasks = [...tasks, ...page.filter((t) => !existing.has(t.id))];
       archiveMore = { ...archiveMore, [status]: page.length === ARCHIVE_PAGE };
     } catch (e: any) {
-      error = e.message;
+      notice = e.message;
     } finally {
       archiveLoading = { ...archiveLoading, [status]: false };
     }
@@ -230,6 +356,7 @@
     const task = draggedTask;
     const oldStatus = task.status;
     draggedTask = null;
+    notice = null;
 
     // Optimistic update
     const idx = tasks.findIndex((t) => t.id === task.id);
@@ -239,12 +366,38 @@
 
     try {
       await api.updateTask(task.id, { status: newStatus });
+      if (newStatus === 'done') await loadTasks(true);
     } catch (e: any) {
-      // Revert on failure
+      // Revert on failure; the server's transition table decides.
       if (idx !== -1) {
         tasks[idx] = { ...tasks[idx], status: oldStatus };
       }
-      error = e.message;
+      notice = e.message;
+    }
+  }
+
+  // A lane holds several statuses, so a drop maps to the one human move the
+  // lane allows: Done accepts verified work, Planned requeues a needs_human
+  // task. Anything else goes through the card's actions.
+  async function handleLaneDrop(lane: LaneId) {
+    const task = draggedTask;
+    draggedTask = null;
+    if (!task) return;
+    const from = LANES.find((l) => l.statuses.includes(task.status))?.id;
+    if (from === lane) return;
+    notice = null;
+    try {
+      if (lane === 'done' && task.status === 'verified') {
+        await api.acceptTask(task.id);
+      } else if (lane === 'planned' && task.status === 'needs_human') {
+        await api.resolveTask(task.id, 'requeue', 'Requeued from the board.');
+      } else {
+        notice = `${task.short_id ?? task.title}: that move isn't a single human step. Open the card for its actions.`;
+        return;
+      }
+      await loadTasks(true);
+    } catch (e: any) {
+      notice = e.message;
     }
   }
 
@@ -292,7 +445,7 @@
       showModal = false;
       editingTask = null;
     } catch (e: any) {
-      error = e.message;
+      notice = e.message;
     }
   }
 
@@ -309,7 +462,7 @@
       showConfirm = false;
       deletingTask = null;
     } catch (e: any) {
-      error = e.message;
+      notice = e.message;
     }
   }
 </script>
@@ -321,20 +474,62 @@
   {searchQuery}
   {selectedPriorities}
   {selectedTags}
+  {viewMode}
+  {doneDays}
+  {showCancelled}
   onSearchChange={(q) => { searchQuery = q; }}
   onPriorityToggle={togglePriority}
   onTagToggle={toggleTag}
   onClear={clearFilters}
+  onViewModeChange={(m) => { viewMode = m; }}
+  onDoneDaysChange={(d) => { doneDays = d; }}
+  onShowCancelledChange={(v) => { showCancelled = v; }}
   bind:focusSearch
 />
 
-<div class="board-wrapper">
+{#if notice}
+  <div class="notice" role="status">
+    <span>{notice}</span>
+    <button type="button" aria-label="Dismiss" onclick={() => { notice = null; }}>&times;</button>
+  </div>
+{/if}
+
+<div class="board-wrapper" class:grouped={viewMode === 'grouped'}>
   {#if loading}
     <div class="board-message">Loading tasks...</div>
   {:else if error}
     <div class="board-message error">
       {error}
       <button onclick={() => { error = null; loadTasks(); }}>Retry</button>
+    </div>
+  {:else if viewMode === 'grouped'}
+    <div class="lanes">
+      {#each lanes as lane (lane.id)}
+        <KanbanLane
+          id={lane.id}
+          label={lane.label}
+          statuses={lane.statuses}
+          sublabel={lane.id === 'done' ? (doneDays ? `last ${doneDays} days` : 'all') : undefined}
+          tasks={lane.tasks}
+          subtaskCounts={subtaskCounts()}
+          headerAction={lane.id === 'review'
+            ? { label: `Accept ${lowRiskBatch.length} low-risk`, disabled: lowRiskBatch.length === 0, onClick: acceptBatch }
+            : undefined}
+          footerAction={lane.id === 'done' && (hiddenDone > 0 || archiveMore.done)
+            ? {
+                label: archiveLoading.done ? 'Loading…' : 'Show older',
+                disabled: archiveLoading.done,
+                onClick: () => { if (hiddenDone > 0 && doneDays !== 0) doneDays = 0; else loadMoreArchive('done'); },
+              }
+            : undefined}
+          {cardExtras}
+          onEdit={openEditModal}
+          onDelete={confirmDelete}
+          onDragStart={handleDragStart}
+          onDrop={handleLaneDrop}
+          onAddTask={lane.id === 'planned' ? () => openCreateModal('ready') : undefined}
+        />
+      {/each}
     </div>
   {:else}
     <div class="board">
@@ -347,7 +542,7 @@
           subtaskCounts={subtaskCounts()}
           hasMore={term ? archiveMore[term] : false}
           loadingMore={term ? archiveLoading[term] : false}
-          onLoadMore={term ? () => loadMoreArchive(term) : undefined}
+          onLoadMore={term ? () => { if (term === 'done') doneDays = 0; loadMoreArchive(term); } : undefined}
           onEdit={openEditModal}
           onDelete={confirmDelete}
           onDragStart={handleDragStart}
@@ -367,6 +562,7 @@
     {defaultStatus}
     onSave={handleSave}
     onClose={() => { showModal = false; editingTask = null; }}
+    onChanged={() => { showModal = false; editingTask = null; loadTasks(true); }}
   />
 {/if}
 
@@ -393,6 +589,42 @@
     gap: 10px;
     align-items: flex-start;
     height: 100%;
+  }
+
+  /* Grouped: five lanes share the width, so a laptop screen needs no
+     horizontal scroll. Narrower screens fall back to scrolling. */
+  .lanes {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(200px, 1fr));
+    gap: 10px;
+    align-items: start;
+    height: 100%;
+  }
+
+  .lanes > :global(.lane) {
+    max-height: 100%;
+  }
+
+  .notice {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 8px 12px 0;
+    padding: 6px 10px;
+    font-size: 0.75rem;
+    color: var(--priority-high);
+    border: 1px solid color-mix(in srgb, var(--priority-high) 40%, transparent);
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--priority-high) 8%, transparent);
+  }
+
+  .notice button {
+    background: none;
+    border: none;
+    color: inherit;
+    font-size: 1rem;
+    line-height: 1;
   }
 
   .board-message {

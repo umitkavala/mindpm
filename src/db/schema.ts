@@ -2,8 +2,8 @@ import type Database from 'better-sqlite3';
 import { generateSlug, generateId } from '../utils/ids.js';
 
 // Task columns, shared by createSchema and the tasks-table rebuild migration.
-// Statuses are handoff states only; see src/domain/lifecycle.ts. 'verified' is
-// reserved for Phase 2 so adding a verifier doesn't need another rebuild.
+// Statuses are handoff states only; see src/domain/lifecycle.ts. 'verified' was
+// reserved in 2.0 so the Phase 2 verifier didn't need another rebuild.
 const TASKS_COLUMNS = `
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL REFERENCES projects(id),
@@ -22,6 +22,7 @@ const TASKS_COLUMNS = `
       claim_token TEXT,
       lease_expires_at DATETIME,
       max_attempts INTEGER DEFAULT 3,
+      verified_run_id TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       completed_at DATETIME`;
@@ -97,6 +98,10 @@ const PHASE1_TABLES = `
       review_decision TEXT CHECK(review_decision IN ('accept', 'reject')),
       review_findings TEXT CHECK(length(review_findings) <= 1500),
       reviewed_by TEXT,
+      verification_outcome TEXT CHECK(verification_outcome IN ('passed', 'failed')),
+      verification_findings TEXT,
+      self_report_mismatch INTEGER NOT NULL DEFAULT 0,
+      consecutive_errors INTEGER NOT NULL DEFAULT 0,
       started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       ended_at DATETIME,
       UNIQUE(task_id, attempt_no)
@@ -109,6 +114,68 @@ const PHASE1_TABLES = `
     BEGIN
       UPDATE specs SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
     END;`;
+
+// Phase 2: verifiers and their runs. A run belongs to one attempt and one SHA;
+// check_results hold what was executed, criterion_results what was concluded.
+const PHASE2_TABLES = `
+    CREATE TABLE IF NOT EXISTS verifiers (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      kind TEXT NOT NULL CHECK(kind IN ('local', 'reviewer')),
+      key_hash TEXT NOT NULL UNIQUE,
+      project_ids TEXT NOT NULL,
+      created_by TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      last_used_at DATETIME,
+      revoked_at DATETIME
+    );
+
+    CREATE TABLE IF NOT EXISTS verification_runs (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL REFERENCES tasks(id),
+      attempt_id TEXT NOT NULL REFERENCES attempts(id),
+      verifier_id TEXT NOT NULL REFERENCES verifiers(id),
+      head_sha TEXT NOT NULL,
+      spec_version INTEGER,
+      status TEXT NOT NULL DEFAULT 'running'
+        CHECK(status IN ('running', 'passed', 'failed', 'error', 'superseded')),
+      error_reason TEXT CHECK(length(error_reason) <= 600),
+      environment TEXT,
+      started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      lease_expires_at DATETIME NOT NULL,
+      ended_at DATETIME
+    );
+
+    CREATE TABLE IF NOT EXISTS check_results (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL REFERENCES verification_runs(id),
+      name TEXT NOT NULL,
+      command TEXT NOT NULL,
+      exit_code INTEGER,
+      duration_ms INTEGER,
+      output_tail TEXT CHECK(length(output_tail) <= 4000),
+      report TEXT,
+      UNIQUE(run_id, name)
+    );
+
+    CREATE TABLE IF NOT EXISTS criterion_results (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL REFERENCES verification_runs(id),
+      criterion_id TEXT NOT NULL REFERENCES acceptance_criteria(id),
+      result TEXT NOT NULL CHECK(result IN ('pass', 'fail', 'missing')),
+      source TEXT NOT NULL CHECK(source IN ('test', 'command', 'review')),
+      evidence TEXT NOT NULL CHECK(length(evidence) <= 1500),
+      recorded_by TEXT NOT NULL REFERENCES verifiers(id),
+      UNIQUE(run_id, criterion_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_verification_runs_task_id ON verification_runs(task_id);
+    CREATE INDEX IF NOT EXISTS idx_verification_runs_attempt_id ON verification_runs(attempt_id);
+    -- At most one running run per task.
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_verification_runs_one_running
+      ON verification_runs(task_id) WHERE status = 'running';
+    CREATE INDEX IF NOT EXISTS idx_check_results_run_id ON check_results(run_id);
+    CREATE INDEX IF NOT EXISTS idx_criterion_results_run_id ON criterion_results(run_id);`;
 
 // Indexes on Phase 1 columns. Kept out of createSchema's main block because on
 // an existing database those columns only exist after runMigrations.
@@ -139,6 +206,7 @@ export function createSchema(db: Database.Database): void {
       tech_stack TEXT,
       verification_defaults TEXT,
       conventions TEXT,
+      verifier_config TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
@@ -156,6 +224,7 @@ ${TASKS_COLUMNS}
       actor TEXT,
       on_behalf_of TEXT,
       attempt_id TEXT REFERENCES attempts(id),
+      verifier_id TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -261,6 +330,9 @@ ${PHASE1_TABLES}
   if (columnsOf(db, 'tasks').includes('spec_id') && columnsOf(db, 'decisions').includes('spec_id')) {
     createPhase1Indexes(db);
   }
+  // Phase 2 tables reference attempts and acceptance_criteria, which exist by
+  // now on any database (PHASE1_TABLES above creates them if missing).
+  db.exec(PHASE2_TABLES);
 
   // Rebuild so the index is consistent with any rows that already exist before
   // the sync triggers start firing. Without this, the first UPDATE/DELETE on a
@@ -411,6 +483,7 @@ export function runMigrations(db: Database.Database): void {
   }
 
   migratePhase1(db);
+  migratePhase2(db);
 
   // Add session-brief columns to sessions if missing
   const sessionCols = (db.pragma('table_info(sessions)') as { name: string }[]).map(c => c.name);
@@ -447,6 +520,32 @@ export function runMigrations(db: Database.Database): void {
 export function needsPhase1Migration(db: Database.Database): boolean {
   const row = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'").get() as { sql: string } | undefined;
   return !!row && !row.sql.includes('needs_verification');
+}
+
+// True when this database predates Phase 2 and the next runMigrations will add
+// verification columns. Checked on attempts, which every 2.0 database has.
+export function needsPhase2Migration(db: Database.Database): boolean {
+  const hasAttempts = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='attempts'").get();
+  return !!hasAttempts && !columnsOf(db, 'attempts').includes('verification_outcome');
+}
+
+// Phase 2 (verification gate). Additive only: the new tables come from
+// createSchema, this adds nullable columns to existing tables. 'verified' has
+// been in the tasks CHECK since 2.0, so no rebuild.
+function migratePhase2(db: Database.Database): void {
+  const add = (table: string, column: string, ddl: string) => {
+    if (!columnsOf(db, table).includes(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+  };
+  db.transaction(() => {
+    add('tasks', 'verified_run_id', 'TEXT');
+    add('projects', 'verifier_config', 'TEXT');
+    add('task_history', 'verifier_id', 'TEXT');
+    add('attempts', 'verification_outcome', "TEXT CHECK(verification_outcome IN ('passed', 'failed'))");
+    add('attempts', 'verification_findings', 'TEXT');
+    add('attempts', 'self_report_mismatch', 'INTEGER NOT NULL DEFAULT 0');
+    add('attempts', 'consecutive_errors', 'INTEGER NOT NULL DEFAULT 0');
+    db.exec(PHASE2_TABLES);
+  })();
 }
 
 // Phase 1 (specs, attempts, handoff statuses). Runs as one transaction: the

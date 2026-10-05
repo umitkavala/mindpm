@@ -184,7 +184,8 @@ export function registerProjectTools(server: McpServer): void {
       title: 'Set Execution Defaults',
       description:
         'Set the coding conventions and verification commands (build, unit, integration, lint) that go into every task brief for this project. ' +
-        'Tasks can override individual commands with their own verification.',
+        'Tasks can override individual commands with their own verification. These are hints for the executor: the verifier never runs them. ' +
+        'It runs only the checks a human configures in the Kanban UI (Verifiers tab), which the brief lists as verifier_checks.',
       inputSchema: {
         project: z.string().describe('Project name or ID'),
         conventions: z.string().optional().describe('Short coding conventions'),

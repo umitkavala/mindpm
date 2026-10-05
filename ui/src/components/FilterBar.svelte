@@ -12,6 +12,12 @@
     onTagToggle: (t: string) => void;
     onClear: () => void;
     focusSearch?: (() => void) | null;
+    viewMode: 'grouped' | 'all';
+    doneDays: number;
+    showCancelled: boolean;
+    onViewModeChange: (mode: 'grouped' | 'all') => void;
+    onDoneDaysChange: (days: number) => void;
+    onShowCancelledChange: (show: boolean) => void;
   }
 
   let {
@@ -24,6 +30,12 @@
     onTagToggle,
     onClear,
     focusSearch = $bindable(null),
+    viewMode,
+    doneDays,
+    showCancelled,
+    onViewModeChange,
+    onDoneDaysChange,
+    onShowCancelledChange,
   }: Props = $props();
 
   let searchInputEl: HTMLInputElement | null = $state(null);
@@ -89,6 +101,25 @@
       <button class="clear-input" onclick={() => onSearchChange('')}>&times;</button>
     {/if}
   </div>
+
+  <div class="view-toggle" role="group" aria-label="Board view">
+    <button type="button" aria-pressed={viewMode === 'grouped'} class:active={viewMode === 'grouped'} onclick={() => onViewModeChange('grouped')}>grouped</button>
+    <button type="button" aria-pressed={viewMode === 'all'} class:active={viewMode === 'all'} onclick={() => onViewModeChange('all')}>all statuses</button>
+  </div>
+
+  <label class="filter-section">
+    <span class="filter-label">done:</span>
+    <select class="done-select" value={String(doneDays)} onchange={(e) => onDoneDaysChange(Number((e.target as HTMLSelectElement).value))}>
+      <option value="7">last 7 days</option>
+      <option value="30">last 30 days</option>
+      <option value="0">all</option>
+    </select>
+  </label>
+
+  <label class="filter-section show-cancelled">
+    <input type="checkbox" checked={showCancelled} onchange={(e) => onShowCancelledChange((e.target as HTMLInputElement).checked)} />
+    <span class="filter-label">show cancelled</span>
+  </label>
 
   <div class="filter-section">
     <span class="filter-label">priority:</span>
@@ -231,6 +262,46 @@
     display: flex;
     align-items: center;
     gap: 6px;
+  }
+
+  .view-toggle {
+    display: flex;
+    border: 1px solid var(--border-bright);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+  }
+
+  .view-toggle button {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 4px 10px;
+  }
+
+  .view-toggle button + button {
+    border-left: 1px solid var(--border-bright);
+  }
+
+  .view-toggle button.active {
+    background: var(--primary-dim);
+    color: var(--primary);
+  }
+
+  .done-select {
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border-bright);
+    border-radius: var(--radius-sm);
+    font-size: 0.7rem;
+    padding: 2px 4px;
+  }
+
+  .show-cancelled {
+    cursor: pointer;
   }
 
   .filter-label {

@@ -130,6 +130,38 @@
         </div>
       </div>
 
+      {#if metrics.verification}
+        {@const v = metrics.verification}
+        <!-- Verification gate -->
+        <div class="card">
+          <div class="card-label">First-run Pass</div>
+          {#if v.first_run_pass_rate_pct !== null}
+            <div class="card-value">{v.first_run_pass_rate_pct}%</div>
+            <div class="card-sub">of tasks passed verification on the first submission</div>
+          {:else}
+            <div class="card-value card-value--empty">—</div>
+            <div class="card-sub muted">no verified submissions in window</div>
+          {/if}
+          {#if v.median_hours_to_verified !== null}
+            <div class="card-detail">submission → verified: {v.median_hours_to_verified}h median</div>
+          {/if}
+        </div>
+
+        <div class="card">
+          <div class="card-label">Self-report Mismatch</div>
+          {#if v.self_report_mismatch_rate_pct !== null}
+            <div class="card-value {v.self_report_mismatch_rate_pct > 30 ? 'val-danger' : ''}">{v.self_report_mismatch_rate_pct}%</div>
+            <div class="card-sub">of failed submissions claimed a pass</div>
+          {:else}
+            <div class="card-value card-value--empty">—</div>
+            <div class="card-sub muted">no failed verifications in window</div>
+          {/if}
+          {#if v.awaiting_acceptance > 0}
+            <div class="card-detail">{v.awaiting_acceptance} verified, waiting for you</div>
+          {/if}
+        </div>
+      {/if}
+
     </div>
 
     {#if metrics.insights.length > 0}

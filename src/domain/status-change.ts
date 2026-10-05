@@ -1,9 +1,10 @@
 import type Database from 'better-sqlite3';
 import { endAttempt } from './attempts.js';
 import {
-  actorLabel, assertDelegateMayAct, canTransition, LEGACY_STATUS_ALIASES, parseActor, setStatus, TASK_STATUSES, ToolError,
-  ACTOR_FORMAT_HINT, type TaskStatus,
+  actorLabel, assertDelegateMayAct, canTransition, LEGACY_STATUS_ALIASES, moverOf, parseActor, setStatus, TASK_STATUSES, ToolError,
+  ACTOR_FORMAT_HINT, type Actor, type TaskStatus,
 } from './lifecycle.js';
+import { acceptTask } from './verification.js';
 
 // Normalize a requested status, mapping legacy names. Returns the warning to
 // surface when an alias was used.
@@ -20,12 +21,14 @@ export function normalizeStatus(raw: string): { status: TaskStatus; warning: str
 }
 
 // A direct status write, as done by update_task and the Kanban UI. Only
-// humans may do this; agents move tasks through the executor and review
-// tools. Taking a task out of 'claimed' abandons the live attempt.
+// humans may do this; agents move tasks through the executor tools. Taking a
+// task out of 'claimed' abandons the live attempt. Reaching verified is the
+// verifier's alone, reaching done goes through acceptTask, and reopening
+// verified work needs findings (the UI's Reopen).
 export function changeStatusAsHuman(
-  db: Database.Database, taskId: string, rawStatus: string, rawActor: string | undefined, onBehalfOf?: string,
+  db: Database.Database, taskId: string, rawStatus: string, rawActor: string | Actor | undefined, onBehalfOf?: string,
 ): string | null {
-  const actor = parseActor(rawActor, onBehalfOf);
+  const actor = typeof rawActor === 'object' ? rawActor : parseActor(rawActor, onBehalfOf);
   if (!actor) {
     throw new ToolError('illegal_transition', `Changing status directly requires a human actor. ${ACTOR_FORMAT_HINT}`);
   }
@@ -46,7 +49,23 @@ export function changeStatusAsHuman(
   if (to === 'claimed') {
     throw new ToolError('illegal_transition', 'A task can only be claimed through claim_task, which issues a claim token.');
   }
-  if (!canTransition(task.status, to, 'human')) {
+  if (to === 'verified') {
+    throw new ToolError('illegal_transition', 'Only a registered verifier can move a task to verified.');
+  }
+  if (to === 'done' && (task.status === 'needs_verification' || task.status === 'verified')) {
+    if (actor.channel !== 'ui') {
+      throw new ToolError(
+        'illegal_transition',
+        'Accepting work goes through accept_tasks (low risk, verified) or the Kanban UI (medium and high risk).',
+      );
+    }
+    db.transaction(() => acceptTask(db, taskId, actor)).immediate();
+    return warning;
+  }
+  if (task.status === 'verified' && to === 'ready') {
+    throw new ToolError('illegal_transition', 'Reopening verified work needs findings: use Reopen in the Kanban UI.');
+  }
+  if (!canTransition(task.status, to, moverOf(actor))) {
     throw new ToolError('illegal_transition', `${task.status} → ${to} is not allowed.`);
   }
   db.transaction(() => {

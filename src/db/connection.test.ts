@@ -108,3 +108,39 @@ describe('AGENT.md sync', () => {
     expect(readFileSync(path, 'utf8').startsWith(header)).toBe(true);
   });
 });
+
+describe('backup before the Phase 2 migration', () => {
+  // A 2.0 database: Phase 1 schema, none of the verification tables or columns.
+  function v2Db(path: string): void {
+    process.env.MINDPM_DB_PATH = path;
+    getDb();
+    closeDb();
+    const db = new Database(path);
+    db.exec(`
+      DROP TABLE criterion_results; DROP TABLE check_results; DROP TABLE verification_runs; DROP TABLE verifiers;
+      ALTER TABLE attempts DROP COLUMN verification_outcome; ALTER TABLE attempts DROP COLUMN verification_findings;
+      ALTER TABLE attempts DROP COLUMN self_report_mismatch; ALTER TABLE attempts DROP COLUMN consecutive_errors;
+      ALTER TABLE tasks DROP COLUMN verified_run_id; ALTER TABLE projects DROP COLUMN verifier_config;
+      ALTER TABLE task_history DROP COLUMN verifier_id;
+      INSERT INTO projects (id, name, slug) VALUES ('p1', 'P', 'p');
+      INSERT INTO tasks (id, project_id, seq, title, status) VALUES ('t1', 'p1', 1, 'Submitted', 'needs_verification');
+      INSERT INTO attempts (id, task_id, attempt_no, actor, claim_token, outcome, head_sha) VALUES ('a1', 't1', 1, 'agent:cli-a', 'tok', 'submitted', 'abcdef1');
+    `);
+    db.close();
+  }
+
+  it('snapshots the 2.0 database once, then adds the verification schema without touching data', () => {
+    const path = join(dir, 'memory.db');
+    v2Db(path);
+    expect(existsSync(`${path}.pre-3.0.0`)).toBe(false);
+
+    const db = getDb();
+    expect(existsSync(`${path}.pre-3.0.0`)).toBe(true);
+    expect(statusOf(`${path}.pre-3.0.0`)).toBe('needs_verification');
+    expect(db.prepare("SELECT verification_outcome, consecutive_errors FROM attempts WHERE id = 'a1'").get())
+      .toEqual({ verification_outcome: null, consecutive_errors: 0 });
+    expect(db.prepare("SELECT COUNT(*) AS n FROM verifiers").get()).toEqual({ n: 0 });
+    closeDb();
+    expect(statusOf(path)).toBe('needs_verification');
+  });
+});

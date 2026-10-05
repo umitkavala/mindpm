@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import { resolveRepoPath } from '../db/queries.js';
 import { buildFtsAnyMatch, ftsReady } from '../utils/fts.js';
 import { attemptsUsed, maxAttempts } from './attempts.js';
+import { plannedChecks } from './verification.js';
 import { parseIdList, ToolError } from './lifecycle.js';
 import { criterionKey, parseJsonArray, specKey, type CriterionRow, type SpecRow } from './specs.js';
 
@@ -17,6 +18,7 @@ interface BriefAttempt {
   notes: string | null;
   review_findings: string | null;
   escalation?: unknown;
+  verification?: { outcome: string | null; findings?: unknown; self_report_mismatch?: string };
 }
 
 export interface TaskBrief {
@@ -27,7 +29,10 @@ export interface TaskBrief {
   } | null;
   criteria: { id: string; key: string; statement: string; verify_kind: string; verify_ref: string | null }[];
   project: { name: string; tech_stack: string | null; conventions: string | null; repo_path: string | null };
+  // Commands for the executor to run. Hints only: the verifier runs
+  // verifier_checks, which only a human can change.
   verification: Record<string, string>;
+  verifier_checks: { name: string; command: string }[];
   decisions: Omit<BriefDecision, 'source' | 'id'>[];
   dependencies: { key: string; title: string; status: string }[];
   previous_attempts: BriefAttempt[];
@@ -98,12 +103,27 @@ export function buildBrief(db: Database.Database, taskId: string): TaskBrief {
   // Attempts left after this one, so attempt 2 of 3 reports 1.
   const attemptsLeft = Math.max(0, maxAttempts(task as { max_attempts: number | null }) - attemptsUsed(db, taskId) - 1);
 
+  type AttemptQueryRow = Omit<BriefAttempt, 'escalation' | 'verification'> & {
+    escalation: string | null; verification_outcome: string | null; verification_findings: string | null; self_report_mismatch: number;
+  };
   const previous = (db.prepare(
-    `SELECT attempt_no, outcome, failure_type, root_cause, notes, review_findings, escalation
+    `SELECT attempt_no, outcome, failure_type, root_cause, notes, review_findings, escalation,
+       verification_outcome, verification_findings, self_report_mismatch
      FROM attempts WHERE task_id = ? AND outcome != 'active' ORDER BY attempt_no DESC`,
-  ).all(taskId) as (BriefAttempt & { escalation: string | null })[]).map(({ escalation, ...a }) =>
-    escalation ? { ...a, escalation: JSON.parse(escalation) } : a,
-  );
+  ).all(taskId) as AttemptQueryRow[]).map(({ escalation, verification_outcome, verification_findings, self_report_mismatch, ...a }) => {
+    const out: BriefAttempt = { ...a };
+    if (escalation) out.escalation = JSON.parse(escalation);
+    if (verification_outcome) {
+      out.verification = {
+        outcome: verification_outcome,
+        ...(verification_findings ? { findings: JSON.parse(verification_findings) } : {}),
+        ...(self_report_mismatch
+          ? { self_report_mismatch: 'This attempt reported criteria as passing that the verifier found failing or missing.' }
+          : {}),
+      };
+    }
+    return out;
+  });
 
   const dependencies = parseIdList(task.blocked_by).map(id => {
     const dep = db.prepare("SELECT p.slug || '-' || t.seq AS key, t.title, t.status FROM tasks t JOIN projects p ON t.project_id = p.id WHERE t.id = ?")
@@ -146,6 +166,7 @@ export function buildBrief(db: Database.Database, taskId: string): TaskBrief {
       repo_path: resolveRepoPath(task.project_id),
     },
     verification: { ...parseObject(task.verification_defaults), ...parseObject(task.verification) },
+    verifier_checks: plannedChecks(db, task.project_id),
     decisions: [],
     dependencies,
     previous_attempts: previous,

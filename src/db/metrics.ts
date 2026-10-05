@@ -15,7 +15,45 @@ export interface DeliveryMetrics {
     currently_blocked: number;
   };
   dora_tier: 'Elite' | 'High' | 'Medium' | 'Low' | 'unknown';
+  verification: VerificationMetrics;
   insights: string[];
+}
+
+// The verification gate, over submissions verified in the window.
+export interface VerificationMetrics {
+  verified_submissions: number;
+  // Share of tasks whose first verified submission passed.
+  first_run_pass_rate_pct: number | null;
+  // Share of failed submissions where the executor had claimed a pass.
+  self_report_mismatch_rate_pct: number | null;
+  median_hours_to_verified: number | null;
+  awaiting_acceptance: number;
+}
+
+export function computeVerificationMetrics(db: Database.Database, projectId: string, days: number): VerificationMetrics {
+  const w = `datetime('now', '-${days} days')`;
+  type Row = { task_id: string; attempt_no: number; verification_outcome: string; self_report_mismatch: number; hours: number | null };
+  const rows = db.prepare(
+    `SELECT a.task_id, a.attempt_no, a.verification_outcome, a.self_report_mismatch,
+       (SELECT (julianday(r.ended_at) - julianday(a.ended_at)) * 24 FROM verification_runs r
+        WHERE r.attempt_id = a.id AND r.status = 'passed' ORDER BY r.ended_at LIMIT 1) AS hours
+     FROM attempts a JOIN tasks t ON t.id = a.task_id
+     WHERE t.project_id = ? AND a.verification_outcome IS NOT NULL AND a.ended_at >= ${w}
+     ORDER BY a.task_id, a.attempt_no`,
+  ).all(projectId) as Row[];
+  const firstByTask = new Map<string, Row>();
+  for (const r of rows) if (!firstByTask.has(r.task_id)) firstByTask.set(r.task_id, r);
+  const firsts = [...firstByTask.values()];
+  const failed = rows.filter(r => r.verification_outcome === 'failed');
+  const hours = rows.map(r => r.hours).filter((h): h is number => h !== null).sort((a, b) => a - b);
+  const pct = (n: number, d: number) => (d > 0 ? Math.round((n / d) * 100) : null);
+  return {
+    verified_submissions: rows.length,
+    first_run_pass_rate_pct: pct(firsts.filter(r => r.verification_outcome === 'passed').length, firsts.length),
+    self_report_mismatch_rate_pct: pct(failed.filter(r => r.self_report_mismatch).length, failed.length),
+    median_hours_to_verified: hours.length ? Math.round(percentile(hours, 50) * 10) / 10 : null,
+    awaiting_acceptance: (db.prepare("SELECT COUNT(*) AS n FROM tasks WHERE project_id = ? AND status = 'verified'").get(projectId) as { n: number }).n,
+  };
 }
 
 function percentile(sorted: number[], p: number): number {
@@ -127,6 +165,11 @@ export function computeDeliveryMetrics(
     if (leadTrendVal === 'improving' && median !== null) insights.push(`Lead time improved — median now ${median.toFixed(1)} days (was ${prevMedian!.toFixed(1)}).`);
   }
   if (currentlyBlocked > 0) insights.push(`${currentlyBlocked} task${currentlyBlocked > 1 ? 's' : ''} currently blocked.`);
+  const verification = computeVerificationMetrics(db, projectId, days);
+  if (verification.self_report_mismatch_rate_pct !== null && verification.self_report_mismatch_rate_pct > 0) {
+    insights.push(`${verification.self_report_mismatch_rate_pct}% of failed submissions claimed criteria passed that the verifier found failing.`);
+  }
+  if (verification.awaiting_acceptance > 0) insights.push(`${verification.awaiting_acceptance} verified task(s) waiting for a human to accept.`);
 
   return {
     project: projectName,
@@ -137,6 +180,7 @@ export function computeDeliveryMetrics(
       : { note: 'No completed tasks in this period.' },
     flow_efficiency: { blocked_rate_pct: blockedRatePct, avg_blocked_days: avgBlockedDays, currently_blocked: currentlyBlocked },
     dora_tier: doraLabel(leadTimes),
+    verification,
     insights,
   };
 }

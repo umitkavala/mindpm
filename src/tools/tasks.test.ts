@@ -11,6 +11,8 @@ vi.mock('../db/connection.js', () => ({
 }));
 
 import { registerTaskTools } from './tasks.js';
+import { changeStatusAsHuman } from '../domain/status-change.js';
+import { UI_ACTOR } from '../domain/lifecycle.js';
 
 let callTool: ReturnType<typeof createToolCaller>;
 
@@ -99,12 +101,24 @@ describe('update_task', () => {
     expect(row.title).toBe('New Title');
   });
 
-  it('updates task status to done and sets completed_at', async () => {
+  it('refuses to accept work through update_task; acceptance needs accept_tasks or the UI', async () => {
     const db = getTestDb();
     seedProject(db, { id: 'p1', name: 'P' });
     seedTask(db, 'p1', { id: 't1', status: 'needs_verification' });
 
-    await callTool('update_task', { task_id: 't1', status: 'done', actor: 'human:umit' });
+    const res = parseToolResult(await callTool('update_task', { task_id: 't1', status: 'done', actor: 'human:umit' }));
+    expect(JSON.stringify(res)).toMatch(/accept_tasks/);
+    const row = db.prepare('SELECT status, completed_at FROM tasks WHERE id = ?').get('t1') as any;
+    expect(row.status).toBe('needs_verification');
+    expect(row.completed_at).toBeNull();
+  });
+
+  it('accepting a legacy task in the UI sets completed_at', () => {
+    const db = getTestDb();
+    seedProject(db, { id: 'p1', name: 'P' });
+    seedTask(db, 'p1', { id: 't1', status: 'needs_verification' });
+
+    changeStatusAsHuman(db, 't1', 'done', UI_ACTOR);
     const row = db.prepare('SELECT status, completed_at FROM tasks WHERE id = ?').get('t1') as any;
     expect(row.status).toBe('done');
     expect(row.completed_at).not.toBeNull();
@@ -231,7 +245,7 @@ describe('update_task', () => {
     seedTask(db, 'p1', { id: 'd2', status: 'blocked', blocked_by: '["a","c"]' });
     seedTask(db, 'p1', { id: 'd3', status: 'blocked' });
 
-    await callTool('update_task', { task_id: 'a', status: 'done', actor: 'human:umit' });
+    changeStatusAsHuman(db, 'a', 'done', UI_ACTOR);
 
     const status = (id: string) => (db.prepare('SELECT status FROM tasks WHERE id = ?').get(id) as any).status;
     expect(status('d1')).toBe('ready');

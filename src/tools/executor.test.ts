@@ -14,7 +14,12 @@ import { registerSpecTools } from './specs.js';
 import { registerDecisionTools } from './decisions.js';
 import { registerExecutorTools } from './executor.js';
 import { registerReviewTools } from './review.js';
+import { registerVerifierTools } from './verifier.js';
 import { BRIEF_TOKEN_BUDGET, estimateTokens } from '../domain/brief.js';
+import { changeStatusAsHuman } from '../domain/status-change.js';
+import { UI_ACTOR } from '../domain/lifecycle.js';
+import { acceptTask } from '../domain/verification.js';
+import { registerTestVerifier, runVerification } from '../test-helpers/verifier.js';
 
 let callTool: ReturnType<typeof createToolCaller>;
 
@@ -26,6 +31,7 @@ beforeEach(() => {
   registerDecisionTools(server);
   registerExecutorTools(server);
   registerReviewTools(server);
+  registerVerifierTools(server);
   callTool = createToolCaller(server);
   const db = getTestDb();
   seedProject(db, { id: 'p1', name: 'P', tech_stack: 'C#, .NET 9, PostgreSQL' });
@@ -115,13 +121,17 @@ describe('executor flow from the Phase 1 doc', () => {
 
     expect(await submit(b)).toEqual({ status: 'needs_verification' });
 
-    // Medium risk: the reviewer agent cannot accept, the submitter cannot review, a human can.
+    // Nobody accepts unverified work; after a verifier passes it, medium risk is accepted in the UI only.
     expect((await call('review_task', { task_id: 'p-1', actor: 'agent:reviewer', decision: 'accept' })).error).toBe('forbidden');
     expect((await call('review_task', { task_id: 'p-1', actor: 'agent:cli-b', decision: 'accept' })).error).toBe('forbidden');
-    expect(await call('review_task', { task_id: 'p-1', actor: 'human:umit', decision: 'accept' })).toEqual({ status: 'done' });
+    expect((await call('review_task', { task_id: 'p-1', actor: 'human:umit', decision: 'accept' })).error).toBe('illegal_transition');
+    expect(runVerification(getTestDb(), registerTestVerifier(getTestDb()), 'p-1').result).toEqual({ run_status: 'passed', task_status: 'verified' });
+    expect((await call('accept_tasks', { actor: 'agent:assistant', on_behalf_of: 'human:umit', task_ids: ['p-1'] })).refused).toHaveLength(1);
+    acceptTask(getTestDb(), 'p-1', UI_ACTOR);
+    expect(status(task.task_id)).toBe('done');
 
     const attempt = getTestDb().prepare('SELECT * FROM attempts WHERE task_id = ? AND attempt_no = 2').get(task.task_id) as any;
-    expect(attempt).toMatchObject({ outcome: 'submitted', head_sha: 'a1b2c3d4e5f6', review_decision: 'accept', reviewed_by: 'human:umit' });
+    expect(attempt).toMatchObject({ outcome: 'submitted', head_sha: 'a1b2c3d4e5f6', verification_outcome: 'passed' });
     expect(JSON.parse(attempt.criteria_results).map((r: any) => r.key)).toEqual(['AC-1.1', 'AC-1.2']);
   });
 
@@ -301,7 +311,7 @@ describe('report_failure routing', () => {
     expect(out.status).toBe('blocked');
     expect(status(task.task_id)).toBe('blocked');
 
-    await call('review_task', { task_id: 'migration', actor: 'human:umit', decision: 'accept' });
+    changeStatusAsHuman(getTestDb(), 'migration', 'done', UI_ACTOR);
     expect(status(task.task_id)).toBe('ready');
     expect((await call('get_task_brief', { task_id: task.task_id })).dependencies).toEqual([
       { key: 'p-139', title: 'Add last_activity_at column', status: 'done' },
@@ -342,26 +352,29 @@ describe('report_failure routing', () => {
   });
 });
 
-describe('review_task', () => {
-  it('rejection needs findings, uses an attempt, and shows up in the next brief', async () => {
+describe('review_task (deprecated)', () => {
+  it('can no longer reject; failed verification and the UI Reopen replace it', async () => {
     const { task } = await readyTask({ risk_level: 'low' });
     const a = await call('claim_task', { task_id: task.task_id, actor: 'agent:cli-a' });
     await submit(a);
-    expect((await call('review_task', { task_id: task.task_id, actor: 'agent:reviewer', decision: 'reject' })).error).toBe('findings_required');
-    const out = await call('review_task', {
-      task_id: task.task_id, actor: 'agent:reviewer', decision: 'reject', findings: 'SkipsActiveHandling is not asserted; the test only checks the happy path.',
-    });
-    expect(out.status).toBe('ready');
-    const b = await call('claim_task', { task_id: task.task_id, actor: 'agent:cli-b' });
-    expect(b.brief.task.attempts_left).toBe(1);
-    expect(b.brief.previous_attempts[0].review_findings).toMatch(/happy path/);
-    await submit(b);
-    expect(await call('review_task', { task_id: task.task_id, actor: 'agent:reviewer', decision: 'accept' })).toEqual({ status: 'done' });
+    const out = await call('review_task', { task_id: task.task_id, actor: 'human:umit', decision: 'reject', findings: 'Not asserted.' });
+    expect(out.error).toBe('deprecated');
+    expect(status(task.task_id)).toBe('needs_verification');
   });
 
-  it('only reviews tasks in needs_verification and treats plain tasks as medium risk', async () => {
-    seedTask(getTestDb(), 'p1', { id: 'plain', status: 'needs_verification' });
-    expect((await call('review_task', { task_id: 'plain', actor: 'agent:reviewer', decision: 'accept' })).error).toBe('forbidden');
+  it('accepts only verified low-risk work, and never for agent:reviewer', async () => {
+    const { task } = await readyTask({ risk_level: 'low' });
+    const a = await call('claim_task', { task_id: task.task_id, actor: 'agent:cli-a' });
+    await submit(a);
+    runVerification(getTestDb(), registerTestVerifier(getTestDb()), task.task_id);
+    expect((await call('review_task', { task_id: task.task_id, actor: 'agent:reviewer', decision: 'accept' })).error).toBe('forbidden');
+    const out = await call('review_task', { task_id: task.task_id, actor: 'human:umit', decision: 'accept' });
+    expect(out).toMatchObject({ status: 'done', deprecated: expect.stringMatching(/accept_tasks/) });
+  });
+
+  it('treats plain tasks as medium risk and refuses tasks that are not verified', async () => {
+    seedTask(getTestDb(), 'p1', { id: 'plain', status: 'verified' });
+    expect((await call('review_task', { task_id: 'plain', actor: 'human:umit', decision: 'accept' })).error).toBe('illegal_transition');
     seedTask(getTestDb(), 'p1', { id: 'r', status: 'ready' });
     expect((await call('review_task', { task_id: 'r', actor: 'human:umit', decision: 'accept' })).error).toBe('illegal_transition');
   });
@@ -369,15 +382,14 @@ describe('review_task', () => {
 
 describe('acting on behalf of a human', () => {
   it('gives an agent human permissions but records the agent and who asked', async () => {
-    const { task } = await readyTask();
+    const { task } = await readyTask({ risk_level: 'low' });
     const a = await call('claim_task', { task_id: task.task_id, actor: 'agent:cli-a' });
     await submit(a);
-    const out = await call('review_task', { task_id: task.task_id, actor: 'agent:assistant', on_behalf_of: 'human:umit', decision: 'accept' });
-    expect(out).toEqual({ status: 'done' });
+    runVerification(getTestDb(), registerTestVerifier(getTestDb()), task.task_id);
+    const out = await call('accept_tasks', { actor: 'agent:assistant', on_behalf_of: 'human:umit', task_ids: [task.task_id] });
+    expect(out).toEqual({ accepted: ['p-1'], refused: [] });
     const row = getTestDb().prepare("SELECT actor, on_behalf_of FROM task_history WHERE task_id = ? AND new_value = 'done'").get(task.task_id);
     expect(row).toEqual({ actor: 'agent:assistant', on_behalf_of: 'human:umit' });
-    const attempt = getTestDb().prepare('SELECT reviewed_by FROM attempts WHERE task_id = ?').get(task.task_id) as any;
-    expect(attempt.reviewed_by).toBe('agent:assistant for human:umit');
   });
 
   it('never lets an agent act on behalf of a human on work it holds or submitted', async () => {

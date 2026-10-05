@@ -1,5 +1,40 @@
 # Changelog
 
+## 3.0.0
+
+Phase 2, the verification gate: done now means independently verified. A registered verifier reruns the checks itself from a clean checkout of the submitted commit, and a human accepts every task into done.
+
+### Breaking
+
+- Only a verifier can move a task to `verified`, and only from a passing run. `needs_verification → done` is gone, except for legacy tasks with no submitted commit, which the Kanban UI can accept directly.
+- `verified → done`: medium and high risk only through the Kanban UI. Low risk also through the new `accept_tasks` with `on_behalf_of`. `update_task` can't set `verified` or `done` for submitted work, and an MCP caller declaring `human:ui` is not the UI.
+- `review_task` is deprecated: `accept` behaves like `accept_tasks` for one task (verified, low risk), `reject` returns `deprecated`. `agent:reviewer` can no longer accept anything. It will be removed in the next release.
+- A failed verification uses an attempt; findings go into the next brief. A verifier error does not.
+
+### Added
+
+- Verifier keys: registered and revoked in the new Verifiers tab, shown once, stored as SHA-256 hashes. Kinds `local` and `reviewer`, scoped to projects. Actor `verifier:<name>`, recorded in `task_history.verifier_id`.
+- Verifier tools: `pending_verifications`, `start_verification`, `record_checks`, `record_criteria`, `finish_verification`. Runs are bound to the submitted `head_sha`, leased for 30 minutes (extended by every record call), and the server computes the outcome.
+- `mindpm verify` (`--once`, `--task`, `--project`, `--interval`): the local verifier. Checks out the submitted SHA in a temporary git worktree, runs the verification commands with a 15-minute timeout, reads JUnit XML or a simple JSON report, runs `command` criteria, and asks a reviewer command (default `claude -p`) to judge `review` criteria. Verifier keys are stripped from every child process.
+- Per-project verifier config, editable in the UI only. It holds every command the verifier runs: the checks, their report paths and formats, timeouts and the reviewer command. `verification_defaults` and a task's `verification` stay as hints for the executor's brief and are never run by the verifier; the brief lists what will run as `verifier_checks`. A `command` criterion is run only when a human approved its spec.
+- `accept_tasks` for batches of low-risk verified work. `resolve_needs_human` gains `reverify` for a submission whose verification kept erroring.
+- Failed runs write findings into the attempt (failing checks, output tail, failing criteria with evidence) and flag `self_report_mismatch` when the executor claimed a pass. The brief shows them under `previous_attempts[].verification`.
+- Session brief `awaiting_acceptance`: verified work waiting for a human, split into low-risk and UI-only, with Kanban links.
+- Delivery metrics: first-run pass rate, self-report mismatch rate, median hours from submission to verified, tasks awaiting acceptance.
+- `get_task` lists verification runs.
+- Kanban redesign: five grouped lanes (Planned, In progress, Review, Needs attention, Done) with status chips, an All statuses toggle, done limited to the last 7 days by default, cancelled hidden by default, empty columns collapsed. Review lane batch accept for low risk, Accept and Reopen on medium and high risk cards, Resolve on needs_human cards. A verification panel in the task modal shows runs, checks, output and criteria evidence. `?task=<key>` opens a task.
+
+### Security
+
+- The Kanban UI listens on `127.0.0.1` by default (it listened on all interfaces before). `MINDPM_HOST` opts in to another interface, `MINDPM_ALLOWED_HOSTS` adds host names. Under WSL2 NAT networking, set `MINDPM_HOST=0.0.0.0` to reach the board from a Windows browser; the server prints a hint when it detects WSL.
+- Requests must address an allowed host name (DNS rebinding). Writes need a matching `Origin` and a per-start token embedded in the served page (cross-site requests). The page can't be framed (clickjacking). `MINDPM_UI_TOKEN` pins the token for the Vite dev server.
+- A process on the same machine can still read the page's token; see the README's trust model.
+
+### Notes
+
+- The migration is additive: four new tables (`verifiers`, `verification_runs`, `check_results`, `criterion_results`) and nullable columns on `tasks`, `attempts`, `projects` and `task_history`. The server first copies the database to `<db>.pre-3.0.0`.
+- Agent instructions are now version 3.0.0; `AGENT.md` is rewritten on start and the old copy kept as `.bak-2.0.0`.
+
 ## 2.0.0
 
 Phase 1 of agent execution: a task can be run by an agent with no conversation context, parallel agents never collide, and every attempt leaves a memory for the next one.

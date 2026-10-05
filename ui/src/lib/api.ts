@@ -1,9 +1,15 @@
-import type { Project, Task, Note, Decision, TaskHistoryEvent, DeliveryMetrics } from './types.js';
+import type {
+  Project, Task, Note, Decision, TaskHistoryEvent, DeliveryMetrics, TaskVerification, Verifier, Resolution,
+} from './types.js';
+
+// The server embeds a per-start token in the page it serves; writes without
+// it are refused, so other sites can't post to the local port.
+const UI_TOKEN = document.querySelector<HTMLMetaElement>('meta[name="mindpm-token"]')?.content ?? '';
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
-    headers: { 'Content-Type': 'application/json' },
     ...options,
+    headers: { 'Content-Type': 'application/json', 'X-Mindpm-Token': UI_TOKEN },
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
@@ -58,4 +64,34 @@ export const api = {
 
   getMetrics: (projectId: string, days?: number) =>
     request<DeliveryMetrics>(`/projects/${projectId}/metrics${days ? `?days=${days}` : ''}`),
+
+  // --- Verification gate (UI only) ---
+  getTaskVerification: (taskId: string) => request<TaskVerification>(`/tasks/${taskId}/verification`),
+
+  acceptTask: (taskId: string) => request<{ accepted: string[] }>(`/tasks/${taskId}/accept`, { method: 'POST' }),
+
+  acceptTasks: (taskIds: string[]) =>
+    request<{ accepted: string[]; refused: { task_id: string; reason: string }[] }>('/accept', {
+      method: 'POST',
+      body: JSON.stringify({ task_ids: taskIds }),
+    }),
+
+  reopenTask: (taskId: string, findings: string) =>
+    request<{ status: string }>(`/tasks/${taskId}/reopen`, { method: 'POST', body: JSON.stringify({ findings }) }),
+
+  resolveTask: (taskId: string, action: Resolution, note: string) =>
+    request<{ status: string }>(`/tasks/${taskId}/resolve`, { method: 'POST', body: JSON.stringify({ action, note }) }),
+
+  getVerifiers: () => request<Verifier[]>('/verifiers'),
+
+  registerVerifier: (data: { name: string; kind: 'local' | 'reviewer'; project_ids: string[] }) =>
+    request<{ verifier: Verifier; key: string }>('/verifiers', { method: 'POST', body: JSON.stringify(data) }),
+
+  revokeVerifier: (id: string) => request<{ revoked: string }>(`/verifiers/${id}/revoke`, { method: 'POST' }),
+
+  getVerifierConfig: (projectId: string) =>
+    request<{ config: Record<string, unknown>; project_verification_commands: Record<string, string> }>(`/projects/${projectId}/verifier-config`),
+
+  setVerifierConfig: (projectId: string, config: unknown) =>
+    request<Record<string, unknown>>(`/projects/${projectId}/verifier-config`, { method: 'PUT', body: JSON.stringify(config) }),
 };
