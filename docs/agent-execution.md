@@ -2,17 +2,34 @@
 
 mindpm can hand a task to a coding agent that has no conversation context, and keep parallel agents from colliding.
 
-**Lifecycle.** Task statuses are handoffs, enforced by the server:
+**Lifecycle.** Task statuses are handoffs, enforced by the server. The forward path:
 
+```mermaid
+flowchart TD
+    backlog([backlog]) -->|spec approved| ready([ready])
+    ready -->|claim_task| claimed([claimed])
+    claimed -->|submit_task| nv([needs_verification])
+    nv -->|"verification off:<br/>you accept"| done([done])
+    nv -->|"verification on:<br/>verifier passes"| verified([verified])
+    verified -->|you accept| done
 ```
-backlog ──approve_spec──► ready ──claim_task──► claimed ──submit_task──► needs_verification ──verifier──► verified ──accept──► done
-                                                                                  └──────── accept, when verification is off ───────┘
-                            ▲                     │                             │      ▲    │                      │
-                            │      report_failure / release_task / lease expiry │      └────┘ run error            │ reopen
-                            ├─────────────────────┘          verification failed│      (no attempt used)           │ (UI, findings)
-                            └───────────────────────────────────────────────────┴──────────────────────────────────┘
-                     blocked ◄── dependency          needs_human ◄── spec_gap, design_conflict, escalate, attempts exhausted, 3 run errors in a row
-```
+
+Every other move:
+
+| From | To | When |
+| --- | --- | --- |
+| `claimed` | `ready` | `release_task`, `report_failure`, or the lease expires |
+| `claimed` | `blocked` | `report_failure` with `dependency` |
+| `claimed` | `needs_human` | `escalate`, or `report_failure` with `spec_gap` or `design_conflict` |
+| `needs_verification` | `ready` | The verifier fails it, or you reopen it with findings (verification off) |
+| `needs_verification` | `needs_human` | Three verifier errors in a row |
+| `verified` | `ready` | You reopen it with findings |
+| `blocked` | `ready` | Every task in its `blocked_by` is done |
+| `needs_human` | `ready`, `blocked`, `backlog`, `needs_verification` or `cancelled` | A human resolves it: requeue, revise the spec, verify again, or cancel |
+| any but `done` | `cancelled` | A human cancels it |
+| `done` | `ready` | A human reopens it |
+
+**Attempts.** A failure, an expired lease, a failed verification or a reopen uses an attempt; `release_task` and `escalate` don't. Once the last one is used (`max_attempts`, 3 by default), the task goes to `needs_human` instead of `ready`. Tasks also wait in `backlog` while their spec is a draft.
 
 Phases inside a run (implementing, testing, fixing) are heartbeat events, not statuses. Agents can't write status; only a human (`human:<name>`) can, through `update_task` or the Kanban board. An agent that a human explicitly asks to make such a change passes its own id with `on_behalf_of: "human:<name>"`: it gets the human's permissions, history records both, and it is refused on work the agent claimed or submitted itself. When a task reaches done, blocked tasks whose blockers are all done move to ready.
 
