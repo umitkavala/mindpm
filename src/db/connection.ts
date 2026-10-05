@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { homedir } from 'os';
-import { createSchema, needsPhase1Migration, runMigrations } from './schema.js';
+import { createSchema, needsPhase1Migration, needsPhase2Migration, runMigrations } from './schema.js';
 import { AGENT_INSTRUCTIONS, AGENT_INSTRUCTIONS_VERSION } from '../tools/meta.js';
 
 const MARKER_RE = /^<!-- mindpm agent instructions v(\S+) -->/;
@@ -25,13 +25,16 @@ export function syncAgentInstructions(path: string): 'created' | 'updated' | 'cu
   return 'updated';
 }
 
-// Copy the database before the Phase 1 migration rebuilds the tasks table.
-// VACUUM INTO writes a consistent snapshot even in WAL mode with other
-// connections open. An existing backup is never overwritten: the first one
-// is the pre-migration state. If the copy fails, the migration doesn't run.
+// Copy the database before a migration changes it: the Phase 1 rebuild of the
+// tasks table (backup .pre-2.0.0) or the Phase 2 verification columns
+// (.pre-3.0.0). VACUUM INTO writes a consistent snapshot even in WAL mode with
+// other connections open. An existing backup is never overwritten: the first
+// one is the pre-migration state. If the copy fails, the migration doesn't run.
 export function backupBeforeMigration(database: Database.Database, dbPath: string): string | null {
-  if (dbPath === ':memory:' || !needsPhase1Migration(database)) return null;
-  const backup = `${dbPath}.pre-2.0.0`;
+  if (dbPath === ':memory:') return null;
+  const suffix = needsPhase1Migration(database) ? 'pre-2.0.0' : needsPhase2Migration(database) ? 'pre-3.0.0' : null;
+  if (!suffix) return null;
+  const backup = `${dbPath}.${suffix}`;
   if (existsSync(backup)) return backup;
   try {
     database.exec(`VACUUM INTO '${backup.replace(/'/g, "''")}'`);

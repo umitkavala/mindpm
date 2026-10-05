@@ -15,6 +15,10 @@ export interface AttemptRow {
   notes: string | null;
   review_decision: string | null;
   review_findings: string | null;
+  head_sha: string | null;
+  criteria_results: string | null;
+  verification_outcome: string | null;
+  consecutive_errors: number;
 }
 
 export interface ClaimedTask {
@@ -27,12 +31,14 @@ export interface ClaimedTask {
   claim_token: string | null;
 }
 
-// Attempts that count toward max_attempts: failures, expired leases and
-// rejected submissions. Escalations and voluntary releases don't count.
+// Attempts that count toward max_attempts: failures, expired leases,
+// submissions that failed verification and submissions a human reopened.
+// Escalations, voluntary releases and verifier errors don't count.
 export function attemptsUsed(db: Database.Database, taskId: string): number {
   return (db.prepare(
     `SELECT COUNT(*) AS n FROM attempts WHERE task_id = ?
-     AND (outcome IN ('failed', 'expired') OR (outcome = 'submitted' AND review_decision = 'reject'))`,
+     AND (outcome IN ('failed', 'expired')
+          OR (outcome = 'submitted' AND (review_decision = 'reject' OR verification_outcome = 'failed')))`,
   ).get(taskId) as { n: number }).n;
 }
 

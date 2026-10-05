@@ -1,17 +1,17 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.umitkavala/mindpm",
-  "description": "Persistent project memory for LLMs via SQLite. Never re-explain your project again.",
+  "description": "Project memory and a control plane for AI coding agents.",
   "repository": {
     "url": "https://github.com/umitkavala/mindpm",
     "source": "github"
   },
-  "version": "2.0.0",
+  "version": "3.0.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "mindpm",
-      "version": "2.0.0",
+      "version": "3.0.0",
       "transport": {
         "type": "stdio"
       },
@@ -27,6 +27,12 @@
           "description": "Port for the built-in Kanban board UI",
           "required": false,
           "default": "3131"
+        },
+        {
+          "name": "MINDPM_HOST",
+          "description": "Interface the Kanban UI binds to. Loopback by default; set 0.0.0.0 only to opt in (e.g. under WSL2 NAT)",
+          "required": false,
+          "default": "127.0.0.1"
         }
       ]
     }

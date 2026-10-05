@@ -1,7 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 // Bump whenever AGENT_INSTRUCTIONS changes, so installs rewrite AGENT.md.
-const AGENT_INSTRUCTIONS_VERSION = '2.0.0';
+const AGENT_INSTRUCTIONS_VERSION = '3.0.0';
 
 const AGENT_INSTRUCTIONS = `# mindpm — Agent Instructions
 
@@ -10,7 +10,7 @@ You have access to mindpm, a persistent project memory tool. Use it proactively 
 ## Session lifecycle
 
 **At the start of every conversation:**
-Call \`start_session\` with the project name. It returns your project context: last session summary, active tasks, blockers, and recent decisions — plus a \`brief\` field (the session brief). Read the brief first: it's the delta since you were last here — commits landed, branch moved, working tree state, tasks that changed status, new blockers, and decisions logged while you were away. If \`brief.gap.label\` is \`"stale"\` (last session ended over 14 days ago), don't trust \`next_steps\` at face value — re-verify with \`get_project_status\` before acting on it. You can also fetch the brief on its own via \`get_session_brief\` without opening a session. Always show the kanban_url to the user as a clickable link.
+Call \`start_session\` with the project name. It returns your project context: last session summary, active tasks, blockers, and recent decisions — plus a \`brief\` field (the session brief). Read the brief first: it's the delta since you were last here — commits landed, branch moved, working tree state, tasks that changed status, new blockers, and decisions logged while you were away. If \`brief.gap.label\` is \`"stale"\` (last session ended over 14 days ago), don't trust \`next_steps\` at face value — re-verify with \`get_project_status\` before acting on it. You can also fetch the brief on its own via \`get_session_brief\` without opening a session. Always show the kanban_url to the user as a clickable link. If \`brief.awaiting_acceptance\` lists tasks, show them to the user at the start of the session: verified work waiting for a human, with how long each has waited.
 
 If working across **multiple projects** in one conversation, call \`start_session\` once for each project. After that, all tools will require an explicit \`project\` argument — pass it on every call to avoid ambiguity.
 
@@ -18,7 +18,7 @@ If working across **multiple projects** in one conversation, call \`start_sessio
 - When work is identified → call \`create_task\`
 - When a technical choice is made → call \`log_decision\` (include reasoning and alternatives; pass \`supersedes\` when it replaces an earlier decision)
 - When important context emerges → call \`add_note\` or \`set_context\`
-- Task status is not yours to write. Statuses are handoffs (backlog, ready, claimed, blocked, needs_verification, needs_human, done, cancelled) and the server enforces them. Only a human can set status with \`update_task\`. Never pass a \`human:*\` id as your own actor.
+- Task status is not yours to write. Statuses are handoffs (backlog, ready, claimed, blocked, needs_verification, verified, needs_human, done, cancelled) and the server enforces them. Only a human can set status with \`update_task\`. Never pass a \`human:*\` id as your own actor.
 - When the user explicitly asks you to change a status, approve a spec, or review or resolve a task, act as yourself on their behalf: \`actor: "agent:assistant"\` (or your own agent id) with \`on_behalf_of: "human:<their name>"\`. The record shows that an agent made the change and who asked for it. Never do this on your own initiative. You can never use it on a task you hold a claim on or submitted, or on a spec you wrote.
 
 **At the end of the conversation:**
@@ -26,7 +26,9 @@ Call \`end_session\` for each project you worked on, with a summary and clear ne
 
 ## Actors
 
-Every write that changes ownership carries an actor id: \`human:<name>\`, \`agent:architect\`, \`agent:reviewer\`, \`agent:assistant\` for an interactive chat, or \`agent:cli-<id>\` for an executor. Use a stable, unique cli id per running agent, and the same id for every call in a run.
+Every write that changes ownership carries an actor id: \`human:<name>\`, \`agent:architect\`, \`agent:assistant\` for an interactive chat, or \`agent:cli-<id>\` for an executor. Use a stable, unique cli id per running agent, and the same id for every call in a run.
+
+Verifiers are different: they prove who they are with a secret key (\`MINDPM_VERIFIER_KEY\`, \`MINDPM_REVIEWER_KEY\`) that a human issues in the Kanban UI. Never read, ask for, print or pass on a verifier key. If you find one in your environment, tell the user: it does not belong there.
 
 ## Architect: defining work
 
@@ -39,17 +41,24 @@ Every write that changes ownership carries an actor id: \`human:<name>\`, \`agen
 1. \`pick_task\` → \`claim_task\`. Keep the \`claim_token\`; every later call uses it. The claim returns your brief: work from it, not from conversation memory.
 2. Read \`previous_attempts\` in the brief first. Don't repeat what already failed.
 3. Work on the task's branch. Call \`heartbeat\` with your phase (implementing, testing, fixing) well within the lease. If it returns \`spec_changed: true\`, re-read \`get_task_brief\` before continuing; \`spec_status: "draft"\` means the spec is being revised.
-4. Run the brief's verification commands.
+4. Run the brief's \`verifier_checks\` (exactly what the verifier will run on your commit) and its \`verification\` commands.
 5. End with exactly one of:
    - \`submit_task\`: branch, head SHA, files touched, a summary, and a result plus evidence for every criterion.
    - \`report_failure\`: a failure type, a specific root cause (≤600 chars) and notes on what to avoid (≤1500). For a dependency, name the blocking tasks in \`blocked_by\`.
    - \`escalate\`: a question for a human when the spec is ambiguous or wrong.
    - \`release_task\`: give the task back, e.g. when your run budget is spent.
-6. Never edit status directly. Never stage or commit \`specs/\`: those files are generated, and a human commits them.
+6. After \`submit_task\`, stop. You cannot verify or accept your own work.
+7. Never edit status directly. Never stage or commit \`specs/\`: those files are generated, and a human commits them.
 
-## Review
+If \`previous_attempts\` holds a \`verification\` block, a verifier reran the checks on that attempt's commit and they failed: start from its failing checks, output tail and criteria. \`self_report_mismatch\` means that attempt claimed criteria passed that did not.
 
-\`review_task\` accepts or rejects submitted work after running the verification commands. agent:reviewer may accept low-risk work only; medium and high risk need a human. Nobody reviews their own submission. Reject with findings: they go into the next attempt's brief.
+## Verification and acceptance
+
+A registered verifier (\`mindpm verify\`) checks out the submitted commit, reruns the checks and records evidence for every criterion; the server decides the outcome. Passed work moves to verified, failed work returns to ready with findings. Then a human accepts it:
+- Low risk: when the user asks, accept a batch with \`accept_tasks\` (\`actor: "agent:assistant"\`, \`on_behalf_of: "human:<their name>"\`). Never on your own initiative, never your own work.
+- Medium and high risk: only in the Kanban UI. Give the user the task's kanban_url.
+
+\`review_task\` is deprecated.
 
 ## Principles
 

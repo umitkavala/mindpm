@@ -1,7 +1,7 @@
 {
   "name": "mindpm",
-  "version": "2.0.0",
-  "description": "Persistent project memory for LLMs via MCP. Never re-explain your project again.",
+  "version": "3.0.0",
+  "description": "Project memory and a control plane for AI coding agents, over MCP.",
   "type": "module",
   "main": "dist/index.js",
   "bin": {

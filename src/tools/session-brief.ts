@@ -7,6 +7,8 @@ import type Database from 'better-sqlite3';
 import type { GitAnchor, CommitInfo, FileStat } from '../utils/git.js';
 import { shaExists, currentBranch, logSince, diffStatSince, isDirty, untrackedCount, stashCount } from '../utils/git.js';
 import { getDb, resolveRepoPath } from '../db/queries.js';
+import { getHttpPort } from '../server/http.js';
+import { awaitingAcceptance, type AwaitingAcceptance } from '../domain/verification.js';
 
 export interface LastSessionRow {
   id: string;
@@ -304,6 +306,7 @@ export interface SessionBrief {
   blockers: BlockerInfo[];
   decisions_since: DecisionSummary[];
   notes_since_count: number;
+  awaiting_acceptance: AwaitingAcceptance;
 }
 
 // Compose the full session brief: a deterministic delta between the end of
@@ -325,6 +328,7 @@ export function buildSessionBrief(projectId: string, projectName: string): Sessi
 
   const gap = lastSession ? computeGap(lastSession.ended_at ?? lastSession.created_at, new Date()) : null;
   const handoff = lastSession ? { last_session_summary: lastSession.summary, next_steps: lastSession.next_steps } : null;
+  const port = getHttpPort();
 
   return {
     project: projectName,
@@ -341,5 +345,6 @@ export function buildSessionBrief(projectId: string, projectName: string): Sessi
     blockers: delta.blockers,
     decisions_since: delta.decisions_since,
     notes_since_count: delta.notes_since_count,
+    awaiting_acceptance: awaitingAcceptance(db, projectId, port ? `http://localhost:${port}?project=${projectId}` : null),
   };
 }

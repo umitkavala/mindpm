@@ -1,13 +1,13 @@
 {
   "name": "mindpm",
   "display_name": "MindPM — Persistent Project Memory",
-  "description": "Gives LLMs a SQLite-backed brain for your projects. Tracks tasks, decisions, notes, and session context so every new conversation picks up exactly where you left off. Includes a built-in Kanban board.",
+  "description": "Project memory and a control plane for AI coding agents. Tracks tasks, decisions, notes and session context, hands specced tasks to agents, and gates done behind independent verification and human acceptance. Includes a built-in Kanban board.",
   "icon": "https://raw.githubusercontent.com/umitkavala/mindpm/main/assets/logo.png",
   "vendor": "Umit Kavala",
   "homepage": "https://github.com/umitkavala/mindpm",
   "license": "MIT",
   "runtime": "node",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "categories": ["productivity", "memory", "project-management"],
   "tags": ["memory", "tasks", "decisions", "kanban", "sqlite", "sessions", "context"],
   "installation": {
@@ -26,6 +26,11 @@
         "description": "Port for the built-in Kanban board UI",
         "required": false,
         "default": "3131"
+      },
+      "MINDPM_HOST": {
+        "description": "Interface the Kanban UI binds to. Loopback by default; set 0.0.0.0 only to opt in (e.g. under WSL2 NAT)",
+        "required": false,
+        "default": "127.0.0.1"
       }
     }
   },

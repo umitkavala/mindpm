@@ -13,7 +13,8 @@ import { registerDeliveryMetricsTools } from './tools/delivery-metrics.js';
 import { registerSpecTools } from './tools/specs.js';
 import { registerExecutorTools } from './tools/executor.js';
 import { registerReviewTools } from './tools/review.js';
-import { closeDb, ensureDbDirectory } from './db/connection.js';
+import { registerVerifierTools } from './tools/verifier.js';
+import { closeDb, ensureDbDirectory, getDb } from './db/connection.js';
 import { startHttpServer } from './server/http.js';
 import { Server } from 'node:http';
 import { createRequire } from 'node:module';
@@ -45,11 +46,21 @@ registerDeliveryMetricsTools(server);
 registerSpecTools(server);
 registerExecutorTools(server);
 registerReviewTools(server);
+registerVerifierTools(server);
 
 // Start the server
 let httpServer: Server | undefined;
 
 async function main() {
+  // `mindpm verify`: the local verifier, a separate process from the MCP
+  // server that talks to the same database.
+  if (process.argv[2] === 'verify') {
+    const { runVerifyCli } = await import('./verify/run.js');
+    const code = await runVerifyCli(process.argv.slice(3), getDb());
+    closeDb();
+    process.exit(code);
+  }
+
   ensureDbDirectory();
 
   // Start HTTP server for Kanban UI

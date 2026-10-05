@@ -3,14 +3,19 @@ import { getDb, generateId, resolveProjectOrDefault, resolveProjectId, recordTas
 import { generateSlug } from '../utils/ids.js';
 import { computeDeliveryMetrics } from '../db/metrics.js';
 import { matchRoute, parseBody, sendJson } from './http.js';
-import { openBlockers, setStatus, ToolError } from '../domain/lifecycle.js';
+import { openBlockers, setStatus, ToolError, UI_ACTOR } from '../domain/lifecycle.js';
 import { changeStatusAsHuman } from '../domain/status-change.js';
 import { expireLeases } from '../domain/attempts.js';
 import { publicTask } from '../tools/results.js';
+import { resolveNeedsHuman, type Resolution } from '../domain/needs-human.js';
+import {
+  acceptTasks, expireRuns, listVerifiers, registerVerifier, reopenTask, revokeVerifier, runsForTask, setVerifierConfig, verifierConfig,
+  type VerifierKind,
+} from '../domain/verification.js';
 
 // Anything reaching the HTTP port is the local Kanban UI and counts as a
-// human. Same trust model as declared actor ids: local only.
-const UI_ACTOR = 'human:ui';
+// human (UI_ACTOR, channel 'ui'). Same trust model as declared actor ids:
+// local only.
 
 type RouteHandler = (
   req: IncomingMessage,
@@ -116,6 +121,17 @@ const updateProject: RouteHandler = async (req, res, params) => {
 
 // --- Task handlers ---
 
+// What a board card shows besides the task row: spec and risk, the attempt in
+// play, the verifier running on it, and a needs_human task's question.
+const CARD_COLUMNS = `p.slug || '-' || t.seq AS short_id,
+  CASE WHEN s.id IS NULL THEN NULL ELSE 'SPEC-' || s.seq END AS spec_key,
+  COALESCE(s.risk_level, 'medium') AS risk_level,
+  (SELECT MAX(attempt_no) FROM attempts a WHERE a.task_id = t.id) AS attempt_no,
+  (SELECT 'verifier:' || v.name FROM verification_runs r JOIN verifiers v ON v.id = r.verifier_id
+     WHERE r.task_id = t.id AND r.status = 'running') AS running_verifier,
+  CASE WHEN t.status = 'needs_human' THEN
+    (SELECT a.escalation FROM attempts a WHERE a.task_id = t.id ORDER BY a.attempt_no DESC LIMIT 1) END AS escalation`;
+
 const listTasks: RouteHandler = async (req, res, params) => {
   const db = getDb();
   const url = new URL(req.url || '/', 'http://localhost');
@@ -126,6 +142,7 @@ const listTasks: RouteHandler = async (req, res, params) => {
   const offset = clampInt(url.searchParams.get('offset'), 0, 0, Number.MAX_SAFE_INTEGER);
 
   expireLeases(db);
+  expireRuns(db);
   const conditions = ['t.project_id = ?'];
   const sqlParams: unknown[] = [params.pid];
   if (status) {
@@ -141,7 +158,7 @@ const listTasks: RouteHandler = async (req, res, params) => {
     ? 'ORDER BY COALESCE(t.completed_at, t.updated_at) DESC'
     : "ORDER BY CASE t.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 END, t.created_at DESC";
 
-  let sql = `SELECT t.*, p.slug || '-' || t.seq AS short_id FROM tasks t JOIN projects p ON t.project_id = p.id WHERE ${where} ${order}`;
+  let sql = `SELECT t.*, ${CARD_COLUMNS} FROM tasks t JOIN projects p ON t.project_id = p.id LEFT JOIN specs s ON s.id = t.spec_id WHERE ${where} ${order}`;
   // Paginate only when the caller asks (limit/offset) or when terminal tasks are
   // requested without an explicit limit — never dump the full done archive.
   if (hasLimit || status === 'done' || status === 'cancelled') {
@@ -188,7 +205,7 @@ const createTask: RouteHandler = async (req, res, params) => {
   );
 
   const task = db.prepare('SELECT t.*, p.slug || \'-\' || t.seq AS short_id FROM tasks t JOIN projects p ON t.project_id = p.id WHERE t.id = ?').get(id);
-  recordTaskHistory(id, 'created', null, JSON.stringify({ status: 'ready', priority }), UI_ACTOR);
+  recordTaskHistory(id, 'created', null, JSON.stringify({ status: 'ready', priority }), UI_ACTOR.id);
   sendJson(res, 201, publicTask(task as Record<string, unknown>));
 };
 
@@ -240,10 +257,10 @@ const updateTask: RouteHandler = async (req, res, params) => {
       }
       // Record history for meaningful field changes
       if (body.priority !== undefined && body.priority !== existing.priority) {
-        recordTaskHistory(resolvedId, 'priority_changed', existing.priority as string, body.priority as string, UI_ACTOR);
+        recordTaskHistory(resolvedId, 'priority_changed', existing.priority as string, body.priority as string, UI_ACTOR.id);
       }
       if (body.title !== undefined && body.title !== existing.title) {
-        recordTaskHistory(resolvedId, 'title_changed', existing.title as string, body.title as string, UI_ACTOR);
+        recordTaskHistory(resolvedId, 'title_changed', existing.title as string, body.title as string, UI_ACTOR.id);
       }
     }).immediate();
   } catch (e) {
@@ -278,6 +295,11 @@ const deleteTask: RouteHandler = async (_req, res, params) => {
     db.prepare('DELETE FROM task_history WHERE task_id = ?').run(taskId);
     db.prepare('DELETE FROM notes WHERE task_id = ?').run(taskId);
     db.prepare('DELETE FROM task_criteria WHERE task_id = ?').run(taskId);
+    const runs = 'SELECT id FROM verification_runs WHERE task_id = ?';
+    db.prepare(`DELETE FROM check_results WHERE run_id IN (${runs})`).run(taskId);
+    db.prepare(`DELETE FROM criterion_results WHERE run_id IN (${runs})`).run(taskId);
+    db.prepare('UPDATE tasks SET verified_run_id = NULL WHERE id = ?').run(taskId);
+    db.prepare('DELETE FROM verification_runs WHERE task_id = ?').run(taskId);
     db.prepare('DELETE FROM attempts WHERE task_id = ?').run(taskId);
     db.prepare('DELETE FROM tasks WHERE id = ?').run(taskId);
   };
@@ -373,6 +395,113 @@ const listDecisions: RouteHandler = async (req, res, params) => {
   sendJson(res, 200, rows);
 };
 
+// --- Verification handlers (human:ui only; deliberately not MCP tools) ---
+
+// Run a handler body, mapping ToolError to 404/409 like updateTask does.
+async function withToolErrors(res: ServerResponse, fn: () => void): Promise<void> {
+  try {
+    fn();
+  } catch (e) {
+    if (e instanceof ToolError) {
+      const code = e.code === 'not_found' ? 404 : e.code === 'forbidden' ? 403 : e.code.startsWith('invalid') || e.code.endsWith('_required') || e.code === 'too_long' ? 400 : 409;
+      sendJson(res, code, { error: e.message, code: e.code });
+      return;
+    }
+    throw e;
+  }
+}
+
+const getVerifiers: RouteHandler = async (_req, res) => {
+  sendJson(res, 200, listVerifiers(getDb()));
+};
+
+// Shows the key once. Only its hash is stored.
+const createVerifier: RouteHandler = async (req, res) => {
+  const body = await parseBody(req);
+  await withToolErrors(res, () => {
+    const created = registerVerifier(getDb(), {
+      name: String(body.name ?? ''),
+      kind: String(body.kind ?? '') as VerifierKind,
+      project_ids: Array.isArray(body.project_ids) ? body.project_ids.map(String) : [],
+    }, UI_ACTOR);
+    sendJson(res, 201, created);
+  });
+};
+
+const revokeVerifierRoute: RouteHandler = async (_req, res, params) => {
+  await withToolErrors(res, () => {
+    revokeVerifier(getDb(), params.id, UI_ACTOR);
+    sendJson(res, 200, { revoked: params.id });
+  });
+};
+
+// The config, plus the project's agent-editable verification commands so a
+// human can review them and copy them over; the verifier never runs those.
+const getVerifierConfig: RouteHandler = async (_req, res, params) => {
+  const db = getDb();
+  const row = db.prepare('SELECT verification_defaults FROM projects WHERE id = ?').get(params.pid) as { verification_defaults: string | null } | undefined;
+  if (!row) {
+    sendJson(res, 404, { error: 'Project not found' });
+    return;
+  }
+  let suggested: Record<string, string> = {};
+  try {
+    suggested = row.verification_defaults ? JSON.parse(row.verification_defaults) : {};
+  } catch {}
+  sendJson(res, 200, { config: verifierConfig(db, params.pid), project_verification_commands: suggested });
+};
+
+const putVerifierConfig: RouteHandler = async (req, res, params) => {
+  const body = await parseBody(req);
+  await withToolErrors(res, () => sendJson(res, 200, setVerifierConfig(getDb(), params.pid, body, UI_ACTOR)));
+};
+
+const getTaskVerification: RouteHandler = async (_req, res, params) => {
+  const db = getDb();
+  const id = resolveTaskId(params.id);
+  if (!id) {
+    sendJson(res, 404, { error: 'Task not found' });
+    return;
+  }
+  expireRuns(db);
+  const task = db.prepare('SELECT t.status, t.verified_run_id, t.spec_id, s.risk_level FROM tasks t LEFT JOIN specs s ON s.id = t.spec_id WHERE t.id = ?')
+    .get(id) as { status: string; verified_run_id: string | null; spec_id: string | null; risk_level: string | null };
+  const attempt = db.prepare(
+    `SELECT attempt_no, actor, head_sha, branch, summary, criteria_results, verification_outcome, self_report_mismatch, ended_at
+     FROM attempts WHERE task_id = ? AND outcome = 'submitted' ORDER BY attempt_no DESC LIMIT 1`,
+  ).get(id) as Record<string, unknown> | undefined;
+  sendJson(res, 200, {
+    status: task.status,
+    risk_level: task.risk_level ?? 'medium',
+    verified_run_id: task.verified_run_id,
+    submission: attempt ? { ...attempt, criteria_results: attempt.criteria_results ? JSON.parse(String(attempt.criteria_results)) : [] } : null,
+    runs: runsForTask(db, id),
+  });
+};
+
+// Accept one task (any risk) or a batch. A UI click is the only way to done
+// for medium and high risk.
+const acceptRoute: RouteHandler = async (req, res, params) => {
+  const body = await parseBody(req);
+  const ids = params.id ? [params.id] : Array.isArray(body.task_ids) ? body.task_ids.map(String) : [];
+  if (ids.length === 0) {
+    sendJson(res, 400, { error: 'task_ids is required' });
+    return;
+  }
+  const result = acceptTasks(getDb(), ids, UI_ACTOR);
+  sendJson(res, params.id && result.refused.length ? 409 : 200, params.id && result.refused.length ? { error: result.refused[0].reason, ...result } : result);
+};
+
+const resolveRoute: RouteHandler = async (req, res, params) => {
+  const body = await parseBody(req);
+  await withToolErrors(res, () => sendJson(res, 200, resolveNeedsHuman(getDb(), params.id, String(body.action ?? '') as Resolution, String(body.note ?? ''), UI_ACTOR)));
+};
+
+const reopenRoute: RouteHandler = async (req, res, params) => {
+  const body = await parseBody(req);
+  await withToolErrors(res, () => sendJson(res, 200, reopenTask(getDb(), params.id, String(body.findings ?? ''), UI_ACTOR)));
+};
+
 // --- Route table ---
 
 const routes: Route[] = [
@@ -388,6 +517,16 @@ const routes: Route[] = [
   { method: 'PATCH', pattern: '/api/tasks/:id', handler: updateTask },
   { method: 'DELETE', pattern: '/api/tasks/:id', handler: deleteTask },
   { method: 'GET', pattern: '/api/tasks/:id/history', handler: getTaskHistory },
+  { method: 'GET', pattern: '/api/tasks/:id/verification', handler: getTaskVerification },
+  { method: 'POST', pattern: '/api/tasks/:id/accept', handler: acceptRoute },
+  { method: 'POST', pattern: '/api/tasks/:id/reopen', handler: reopenRoute },
+  { method: 'POST', pattern: '/api/tasks/:id/resolve', handler: resolveRoute },
+  { method: 'POST', pattern: '/api/accept', handler: acceptRoute },
+  { method: 'GET', pattern: '/api/verifiers', handler: getVerifiers },
+  { method: 'POST', pattern: '/api/verifiers', handler: createVerifier },
+  { method: 'POST', pattern: '/api/verifiers/:id/revoke', handler: revokeVerifierRoute },
+  { method: 'GET', pattern: '/api/projects/:pid/verifier-config', handler: getVerifierConfig },
+  { method: 'PUT', pattern: '/api/projects/:pid/verifier-config', handler: putVerifierConfig },
 ];
 
 export async function handleApiRequest(

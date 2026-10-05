@@ -3,7 +3,7 @@ import { generateId } from '../utils/ids.js';
 
 // Handoff states. A status changes only when ownership or stage changes
 // hands; phases inside one run (implementing, testing) are heartbeat events
-// in task_history. 'verified' is reserved for the Phase 2 verifier.
+// in task_history. Only a verifier moves work to 'verified'.
 export const TASK_STATUSES = [
   'backlog', 'ready', 'claimed', 'blocked', 'needs_verification', 'verified', 'needs_human', 'done', 'cancelled',
 ] as const;
@@ -16,10 +16,17 @@ export const LEGACY_STATUS_ALIASES: Record<string, TaskStatus> = {
   in_review: 'needs_verification',
 };
 
-export type ActorKind = 'human' | 'architect' | 'reviewer' | 'executor';
+export type ActorKind = 'human' | 'architect' | 'reviewer' | 'executor' | 'verifier';
 // onBehalfOf marks a delegate: an agent doing what a named human asked. It
 // gets a human's permissions, but the record keeps the agent's own id.
-export interface Actor { id: string; kind: ActorKind; onBehalfOf?: string }
+// channel 'ui' is set only by the HTTP routes: a request that came through
+// the Kanban UI, never a declared id. verifierId is set only after a verifier
+// key was checked.
+export interface Actor { id: string; kind: ActorKind; onBehalfOf?: string; channel?: 'ui'; verifierId?: string }
+
+// The Kanban UI. Only src/server/routes.ts uses this; an MCP caller declaring
+// "human:ui" gets a plain declared human without the channel.
+export const UI_ACTOR: Actor = { id: 'human:ui', kind: 'human', channel: 'ui' };
 
 const ACTOR_RE = /^(human|agent):([A-Za-z0-9._-]+)$/;
 
@@ -63,7 +70,7 @@ export function assertDelegateMayAct(db: Database.Database, actor: Actor, taskId
   const submitted = db.prepare(
     "SELECT actor FROM attempts WHERE task_id = ? AND outcome = 'submitted' ORDER BY attempt_no DESC LIMIT 1",
   ).get(taskId) as { actor: string } | undefined;
-  if (task?.status === 'needs_verification' && submitted?.actor === actor.id) {
+  if ((task?.status === 'needs_verification' || task?.status === 'verified') && submitted?.actor === actor.id) {
     throw new ToolError('forbidden', `${actor.id} submitted this work and cannot accept or move it on behalf of ${actor.onBehalfOf}.`);
   }
 }
@@ -71,8 +78,14 @@ export function assertDelegateMayAct(db: Database.Database, actor: Actor, taskId
 export type ActorRef = string | Actor | null;
 
 // Who causes a transition. 'system' covers server-side effects: lease expiry,
-// spec approval releasing backlog tasks, blockers finishing.
-type Mover = ActorKind | 'system';
+// spec approval releasing backlog tasks, blockers finishing. 'ui' is a human
+// acting through the Kanban UI: it may do anything 'human' may, plus the
+// UI-only moves.
+export type Mover = ActorKind | 'system' | 'ui';
+
+export function moverOf(actor: Actor): Mover {
+  return actor.channel === 'ui' ? 'ui' : actor.kind;
+}
 
 const TRANSITIONS: Record<string, Mover[]> = {
   'backlog->ready': ['system', 'human'],
@@ -87,10 +100,17 @@ const TRANSITIONS: Record<string, Mover[]> = {
   'claimed->needs_verification': ['executor', 'human'],
   'blocked->ready': ['system', 'human'],
   'blocked->backlog': ['system', 'human'],
-  'needs_verification->done': ['human', 'reviewer'],
-  'needs_verification->ready': ['human', 'reviewer'],
-  'needs_verification->needs_human': ['human', 'reviewer'],
+  'needs_verification->verified': ['verifier'],
+  'needs_verification->ready': ['verifier'],
+  'needs_verification->needs_human': ['human', 'verifier', 'system'],
+  // Legacy tasks with no submitted attempt only; acceptVerified checks that.
+  'needs_verification->done': ['ui'],
+  // Medium and high risk: UI only. Low risk: also accept_tasks, which checks
+  // the risk level itself.
+  'verified->done': ['ui', 'human'],
+  'verified->ready': ['ui'],
   'needs_human->ready': ['human'],
+  'needs_human->needs_verification': ['human'],
   'needs_human->backlog': ['human'],
   'needs_human->blocked': ['human'],
   'done->ready': ['human'],
@@ -98,10 +118,12 @@ const TRANSITIONS: Record<string, Mover[]> = {
 
 export function canTransition(from: string, to: string, mover: Mover): boolean {
   if (from === to) return false;
+  const human = mover === 'human' || mover === 'ui';
   // A human can cancel anything except done work.
-  if (to === 'cancelled') return from !== 'done' && (mover === 'human' || mover === 'system');
-  if (from === 'cancelled') return to === 'backlog' || to === 'ready' ? mover === 'human' : false;
-  return TRANSITIONS[`${from}->${to}`]?.includes(mover) ?? false;
+  if (to === 'cancelled') return from !== 'done' && (human || mover === 'system');
+  if (from === 'cancelled') return to === 'backlog' || to === 'ready' ? human : false;
+  const allowed = TRANSITIONS[`${from}->${to}`] ?? [];
+  return allowed.includes(mover) || (mover === 'ui' && allowed.includes('human'));
 }
 
 export class ToolError extends Error {
@@ -121,9 +143,10 @@ export function recordHistory(
 ): void {
   const id = typeof actor === 'string' || actor === null ? actor : actor.id;
   const onBehalfOf = actor && typeof actor !== 'string' ? actor.onBehalfOf ?? null : null;
+  const verifierId = actor && typeof actor !== 'string' ? actor.verifierId ?? null : null;
   db.prepare(
-    'INSERT INTO task_history (id, task_id, event, old_value, new_value, actor, on_behalf_of, attempt_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-  ).run(generateId(), taskId, event, oldValue, newValue, id, onBehalfOf, attemptId);
+    'INSERT INTO task_history (id, task_id, event, old_value, new_value, actor, on_behalf_of, attempt_id, verifier_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+  ).run(generateId(), taskId, event, oldValue, newValue, id, onBehalfOf, attemptId, verifierId);
 }
 
 // Write a status change, its history row and its side effects. Callers have
@@ -140,6 +163,8 @@ export function setStatus(
   if (to === 'done') extra.push('completed_at = CURRENT_TIMESTAMP');
   else if (from === 'done') extra.push('completed_at = NULL');
   if (from === 'claimed') extra.push('claimed_by = NULL', 'claim_token = NULL', 'lease_expires_at = NULL');
+  // verified_run_id names the run behind the current verified/done state.
+  if (to !== 'verified' && to !== 'done') extra.push('verified_run_id = NULL');
   db.prepare(`UPDATE tasks SET ${['status = ?', ...extra].join(', ')} WHERE id = ?`).run(to, taskId);
   recordHistory(db, taskId, 'status_changed', from, to, actor, attemptId);
   if (to === 'done') unblockDependents(db, taskId);

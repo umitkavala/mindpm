@@ -8,8 +8,9 @@
   import DecisionsView from './components/DecisionsView.svelte';
   import CommandPalette from './components/CommandPalette.svelte';
   import MetricsView from './components/MetricsView.svelte';
+  import VerifiersView from './components/VerifiersView.svelte';
 
-  type View = 'kanban' | 'notes' | 'decisions' | 'metrics';
+  type View = 'kanban' | 'notes' | 'decisions' | 'metrics' | 'verifiers';
 
   let projects: Project[] = $state([]);
   let selectedProjectId: string | null = $state(null);
@@ -19,6 +20,8 @@
   let newTaskFromPalette = $state(false);
   let activeView: View = $state('kanban');
   let openTaskFromView: Task | null = $state(null);
+  // ?task=<key> from a session-brief link: opened once the board loads.
+  let openTaskKey: string | null = $state(new URLSearchParams(window.location.search).get('task'));
 
   const selectedProject = $derived(projects.find((p) => p.id === selectedProjectId) ?? null);
 
@@ -109,14 +112,22 @@
           <button class="tab" class:active={activeView === 'notes'} onclick={() => activeView = 'notes'}>Notes</button>
           <button class="tab" class:active={activeView === 'decisions'} onclick={() => activeView = 'decisions'}>Decisions</button>
           <button class="tab" class:active={activeView === 'metrics'} onclick={() => activeView = 'metrics'}>Metrics</button>
+          <button class="tab" class:active={activeView === 'verifiers'} onclick={() => activeView = 'verifiers'}>Verifiers</button>
         </div>
         {#if activeView === 'kanban'}
           <KanbanBoard
             project={selectedProject}
             triggerNewTask={newTaskFromPalette}
             openTask={openTaskFromView}
+            {openTaskKey}
             onNewTaskTriggered={() => { newTaskFromPalette = false; }}
             onOpenTaskHandled={() => { openTaskFromView = null; }}
+            onOpenTaskKeyHandled={() => {
+              openTaskKey = null;
+              const url = new URL(window.location.href);
+              url.searchParams.delete('task');
+              history.replaceState(null, '', url.toString());
+            }}
           />
         {:else if activeView === 'notes'}
           <NotesView
@@ -130,6 +141,8 @@
           />
         {:else if activeView === 'metrics'}
           <MetricsView projectId={selectedProject.id} />
+        {:else if activeView === 'verifiers'}
+          <VerifiersView project={selectedProject} {projects} />
         {/if}
       {/if}
     </div>

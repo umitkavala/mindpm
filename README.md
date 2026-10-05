@@ -1,8 +1,8 @@
 # mindpm
 
-**Persistent project memory for LLMs.** Never re-explain your project again.
+**Project memory and a control plane for AI coding agents.**
 
-mindpm is an MCP (Model Context Protocol) server that gives LLMs a SQLite-backed brain for your projects. It tracks tasks, decisions, architecture notes, and session context — so every new conversation picks up exactly where you left off.
+mindpm is an MCP (Model Context Protocol) server that gives LLMs a SQLite-backed brain for your projects. It tracks tasks, decisions, architecture notes, and session context — so every new conversation picks up exactly where you left off. It also hands specced tasks to coding agents, keeps parallel agents from colliding, and only counts work as done once a verifier has rerun the checks itself and a human has accepted it.
 
 ## The Problem
 
@@ -28,6 +28,8 @@ LLM: [queries mindpm] "Last session you finished the auth refactor.
 - **Tasks** — handoff status, priority, blockers, sub-tasks
 - **Specs** — objective, why, approach, constraints and acceptance criteria an agent can execute against
 - **Attempts** — every agent run on a task: outcome, root cause, what to avoid next time
+- **Verification runs** — what a verifier executed on a submitted commit (checks, exit codes, test reports) and what it concluded for each acceptance criterion, with evidence
+- **Verifiers** — the registered processes allowed to verify work, identified by a secret key stored only as a hash
 - **Decisions** — what was decided, why, what alternatives were rejected
 - **Notes** — architecture, bugs, ideas, research
 - **Context** — key-value pairs (tech stack, conventions, config)
@@ -44,6 +46,22 @@ Kanban board: http://localhost:3131?project=<project-id>
 ```
 
 The port is configurable via the `MINDPM_PORT` environment variable.
+
+The board writes to your database as `human:ui`, so the port is locked down:
+
+- It listens on `127.0.0.1` only. `MINDPM_HOST` opts in to another interface (`0.0.0.0` for all); the server warns when it listens on all of them. Requests must address an allowed host name (loopback, the `MINDPM_HOST` address, and anything in `MINDPM_ALLOWED_HOSTS`, comma-separated), which stops DNS rebinding.
+- Writes need an `Origin` matching the board and a token that changes every time the server starts and is embedded only in the page it serves, so other websites you visit can't post to it. The page refuses to be framed.
+- **WSL2:** with the default NAT networking, a Windows browser can't reach a server bound to `127.0.0.1` inside WSL. The better fix is mirrored networking, which makes WSL and Windows share `localhost`, so the default binding works and you don't need `MINDPM_HOST`. Add this to `%UserProfile%\.wslconfig` and run `wsl --shutdown`:
+
+  ```ini
+  [wsl2]
+  networkingMode=mirrored
+  ```
+
+  If you stay on NAT, `MINDPM_HOST=0.0.0.0` also works, because WSL's NAT keeps the port off your LAN unless you add a port proxy. The server prints this hint when it detects WSL.
+- **Never combine mirrored mode with `MINDPM_HOST=0.0.0.0`.** In mirrored mode, `0.0.0.0` is your real network interface, so anyone on your LAN can reach the board and act as `human:ui`.
+
+By default the board groups statuses into five lanes that fit a laptop screen: **Planned** (backlog, ready), **In progress** (claimed), **Review** (needs_verification, verified), **Needs attention** (needs_human, blocked) and **Done** (last 7 days). Each card shows its exact status as a chip. **All statuses** switches to one column per status, with empty columns collapsed. The Review lane is where you accept verified work: low-risk tasks in one batch, medium and high risk one by one, or reopen them with findings. The **Verifiers** tab registers and revokes verifier keys. `?task=<key>` in the URL opens that task.
 
 ## Session Brief
 
@@ -105,9 +123,17 @@ Example output:
   "decisions_since": [
     { "id": "9f8e7d6c", "title": "Use token bucket for rate limiting", "at": "2026-08-09T09:00:00.000Z" }
   ],
-  "notes_since_count": 3
+  "notes_since_count": 3,
+  "awaiting_acceptance": {
+    "low_risk": [{ "task_id": "a1b2c3d4", "key": "my-app-14", "title": "Document the JSON report format", "risk_level": "low", "waiting_hours": 5.2 }],
+    "needs_ui": [{ "task_id": "b2c3d4e5", "key": "my-app-12", "title": "Inactivity timeout", "risk_level": "medium", "waiting_hours": 20.1,
+                   "kanban_url": "http://localhost:3131?project=<project-id>&task=my-app-12" }],
+    "hint": "Show this to the user. ..."
+  }
 }
 ```
+
+`awaiting_acceptance` lists verified work waiting for a human. Agents show it at the start of a session; low-risk tasks can be accepted from chat with `accept_tasks`, medium and high risk only in the Kanban UI.
 
 `gap.label` is `same-day` (<6h), `overnight` (6-20h), `multi-day` (20h-14d), or `stale` (>14d) — a stale gap adds a `gap.hint` telling the agent to re-verify context rather than trust `next_steps` at face value.
 
@@ -120,16 +146,17 @@ mindpm can hand a task to a coding agent that has no conversation context, and k
 **Lifecycle.** Task statuses are handoffs, enforced by the server:
 
 ```
-backlog ──approve_spec──► ready ──claim_task──► claimed ──submit_task──► needs_verification ──review_task──► done
-                            ▲                     │                                │
-                            │      report_failure / release_task / lease expiry    │ reject
-                            └─────────────────────┴────────────────────────────────┘
-                     blocked ◄── dependency          needs_human ◄── spec_gap, design_conflict, escalate, attempts exhausted
+backlog ──approve_spec──► ready ──claim_task──► claimed ──submit_task──► needs_verification ──verifier──► verified ──accept──► done
+                            ▲                     │                             │      ▲    │                      │
+                            │      report_failure / release_task / lease expiry │      └────┘ run error            │ reopen
+                            ├─────────────────────┘          verification failed│      (no attempt used)           │ (UI, findings)
+                            └───────────────────────────────────────────────────┴──────────────────────────────────┘
+                     blocked ◄── dependency          needs_human ◄── spec_gap, design_conflict, escalate, attempts exhausted, 3 run errors in a row
 ```
 
 Phases inside a run (implementing, testing, fixing) are heartbeat events, not statuses. Agents can't write status; only a human (`human:<name>`) can, through `update_task` or the Kanban board. An agent that a human explicitly asks to make such a change passes its own id with `on_behalf_of: "human:<name>"`: it gets the human's permissions, history records both, and it is refused on work the agent claimed or submitted itself. When a task reaches done, blocked tasks whose blockers are all done move to ready.
 
-**Specs.** An architect (`agent:architect` or a human) writes a spec with acceptance criteria and a risk level, then links tasks to it. Tasks wait in backlog until the spec is approved. Medium and high risk need a human to approve and to accept the work; `agent:reviewer` may accept low-risk work. Approval writes `specs/SPEC-<n>.md` into the repo for a human to commit. The database stays the source of truth.
+**Specs.** An architect (`agent:architect` or a human) writes a spec with acceptance criteria and a risk level, then links tasks to it. Tasks wait in backlog until the spec is approved. Medium and high risk need a human to approve. Every task is checked by a verifier and then accepted by a human: low-risk work in batches (the board, or `accept_tasks` from chat when you ask), medium and high risk one by one in the Kanban UI. Approval writes `specs/SPEC-<n>.md` into the repo for a human to commit. The database stays the source of truth.
 
 **Claims.** `claim_task` is atomic and returns a claim token plus the task brief. The lease (30 minutes by default, 120 max) is extended by `heartbeat`; an expired lease ends the attempt, counts toward `max_attempts` (3 by default), and returns the task to the queue. Every write after the claim is authorized by the token, so an agent whose lease lapsed can't overwrite a newer attempt.
 
@@ -234,6 +261,79 @@ You can also call the `get_agent_instructions` tool at any time to retrieve the 
 
 That's it. The LLM now has access to mindpm tools. Just start talking about your projects.
 
+## Verification
+
+Done means independently verified. A **verifier** reruns a task's checks itself, from a clean checkout of the submitted commit, and records evidence for every acceptance criterion. The server, not the verifier, decides the outcome: a run passes only if every check exited 0 and every criterion has positive evidence. A skipped, missing or ambiguous test counts as not passed.
+
+- **Passed**: the task moves to `verified` and waits for a human to accept it.
+- **Failed**: the task returns to `ready`, the attempt is used, and the findings (failing checks, the first failing check's output, each failing criterion with its evidence) go into the next executor's brief. If the executor had reported a criterion as passing that the verifier found failing, the attempt is flagged `self_report_mismatch`.
+- **Error** (the check broke, not the code: checkout failed, a check timed out, no report configured): the task stays in `needs_verification` and no attempt is used. After three errors in a row it goes to `needs_human`; once the verifier is fixed, resolve it with `reverify`.
+
+**Registering a verifier.** Open the **Verifiers** tab in the Kanban UI and register one. Only the UI can do this, so an agent can't mint its own key. The key is shown once; mindpm stores only its hash. There are two kinds:
+
+- `local`: starts runs, records check results and test or command criteria, finishes runs. Used as `MINDPM_VERIFIER_KEY`.
+- `reviewer`: judges `review` criteria only. Used as `MINDPM_REVIEWER_KEY`.
+
+**What the verifier runs is human-owned.** Every command it executes comes from the project's verifier config, which only the Kanban UI can change: the checks, the reviewer command, and nothing else. The project's verification commands (`set_execution_defaults`) and a task's own `verification` are hints for the executor's brief; an agent can edit them, so the verifier never runs them. The brief lists what the verifier will run as `verifier_checks`. A `command` criterion's `verify_ref` is run only when a human approved its spec (a declared `agent:architect` can approve a low-risk spec on its own); otherwise the run ends as an error.
+
+**Keys never go in an agent's environment.** Run the verifier in its own terminal or as a service, not in the shell your coding agent uses. mindpm can't detect a leaked key; revoke it in the Verifiers tab and runs under it end as errors. `mindpm verify` strips both keys from the environment of every check it runs.
+
+**Running it.**
+
+```bash
+export MINDPM_VERIFIER_KEY=mpv_...      # local key
+export MINDPM_REVIEWER_KEY=mpv_...      # optional, for review criteria
+npx mindpm verify                       # poll for work every 30 s
+npx mindpm verify --once                # verify everything waiting, then exit
+npx mindpm verify --task my-app-12      # one task
+npx mindpm verify --project my-app      # one project
+```
+
+For each task waiting in `needs_verification` it adds a temporary `git worktree` at the submitted SHA (never the executor's working tree), confirms `HEAD`, runs the project's verification commands, maps criteria to evidence, runs the reviewer for review criteria, and removes the worktree. It talks to the same database as the MCP server; it is not part of it.
+
+### Verification config
+
+Edited in the Verifiers tab only. It names every check the verifier runs, where each writes its test report, and the reviewer. **Start from project commands** copies the project's verification commands in for you to review first.
+
+```json
+{
+  "check_timeout_minutes": 15,
+  "checks": {
+    "build": { "command": "npm run build" },
+    "unit": { "command": "npm test -- --reporter=junit --outputFile=reports/junit.xml",
+              "report": { "path": "reports/junit.xml", "format": "junit" } },
+    "e2e": { "command": "npm run e2e", "report": { "path": "reports/e2e.json", "format": "json" }, "timeout_minutes": 30 }
+  },
+  "reviewer": { "command": "claude -p", "base_branch": "main" }
+}
+```
+
+- **Timeout**: 15 minutes per check by default. A timeout is an error, not a failure.
+- **Reports**: JUnit XML (dotnet, Java/surefire, pytest, vitest and jest with a JUnit reporter) or a simple JSON format for runners without JUnit output. A `test` criterion's `verify_ref` is matched against `classname.name`, then `name` alone. A task with test criteria and no configured report ends as an error.
+
+  ```json
+  {
+    "tests": [
+      { "id": "InactivityTimeoutTests.ClosesAfterThirtyMinutes", "status": "passed", "duration_ms": 412 },
+      { "id": "InactivityTimeoutTests.SkipsActiveHandling", "status": "failed", "message": "Expected Open, got Closed" }
+    ]
+  }
+  ```
+
+  `status` is `passed`, `failed` or `skipped`; `duration_ms` and `message` are optional.
+- **`command` criteria**: `verify_ref` runs in the checkout; exit 0 passes.
+- **Reviewer**: for `review` criteria, `reviewer.command` (default `claude -p`) gets a fixed prompt with the spec, the criteria and the diff against `base_branch` on stdin, and must answer `{"results":[{"criterion":"AC-12.3","result":"pass","rationale":"..."}]}`. A pass without a rationale counts as missing.
+
+### Trust model: what this does and doesn't stop
+
+mindpm runs on your machine with no user accounts. Within that:
+
+- **Verifiers are authenticated.** Only a request carrying a verifier key can move work to `verified`, and only for the commit that was submitted. Keys are issued in the UI and stored as hashes.
+- **The UI is guarded against the network and other websites**, as described under [Kanban Board](#kanban-board): loopback only, allowed host names, a matching `Origin` and a per-start token for writes.
+- **Everything else is declared, not proven.** `human:<name>`, `agent:architect` and the other actor ids are whatever the caller says they are.
+
+**It does not stop a process on your own machine.** An agent with a shell can read the board page, take its token and call the UI's routes as `human:ui`, which includes accepting medium and high risk work. It can also read a verifier key from any environment or file it can see, or write to the SQLite file directly. mindpm can't tell those apart from you. Keeping executors away from `localhost:3131`, the verifier key variables and `~/.mindpm/` is the job of your agent's sandbox: Claude Code deny rules for executors are planned for Phase 3. Until then, run executor agents where they can't reach those, and treat a clean verification run as strong evidence, not proof.
+
 ## MCP Tools
 
 ### Projects
@@ -275,11 +375,23 @@ That's it. The LLM now has access to mindpm tools. Just start talking about your
 | `escalate` | Ask a human; doesn't use up an attempt |
 | `release_task` | Give the task back; doesn't use up an attempt |
 
+### Verifier
+These require a verifier key. `mindpm verify` uses them through the database directly; a reviewer agent can call them over MCP.
+
+| Tool | Description |
+|------|-------------|
+| `pending_verifications` | Tasks waiting for a verifier in the projects the key covers, oldest first |
+| `start_verification` | Open a run on a task's submitted SHA; returns the checks and criteria (local keys) |
+| `record_checks` | Record what was executed: command, exit code, duration, output tail, report (local keys) |
+| `record_criteria` | Record a result and evidence per criterion (test/command: local keys; review: reviewer keys) |
+| `finish_verification` | End the run; the server computes passed or failed, or records an error |
+
 ### Review
 | Tool | Description |
 |------|-------------|
-| `review_task` | Accept or reject submitted work |
-| `resolve_needs_human` | Requeue, cancel, or send the spec back for revision |
+| `accept_tasks` | Move low-risk verified tasks to done, when a human asked (`on_behalf_of`). Medium and high risk are refused |
+| `resolve_needs_human` | Requeue, cancel, send the spec back for revision, or hand a stuck submission back to the verifier |
+| `review_task` | **Deprecated.** `accept` behaves like `accept_tasks` for one task; `reject` is refused. Removed in the next release |
 
 ### Decisions
 | Tool | Description |
@@ -317,6 +429,11 @@ That's it. The LLM now has access to mindpm tools. Just start talking about your
 │  Claude Code │ ◄──────────► │ mindpm  │ ◄────────────► │ memory.db│
 │  / Desktop   │   tools      │ server  │   read/write   │          │
 └─────────────┘               └─────────┘                └──────────┘
+                                                               ▲
+┌──────────────────────────┐   verifier key, read/write        │
+│ mindpm verify            │ ──────────────────────────────────┘
+│ (own terminal / service) │ ── git worktree at head_sha, runs checks
+└──────────────────────────┘
 ```
 
 1. You start a conversation and mention your project
@@ -331,7 +448,9 @@ Default: `~/.mindpm/memory.db`
 
 Override with `MINDPM_DB_PATH` or `PROJECT_MEMORY_DB_PATH` environment variable.
 
-Database and tables are created automatically on first run. Before the 2.0.0 migration rewrites the tasks table, the server saves a copy next to the database as `<db>.pre-2.0.0`.
+Database and tables are created automatically on first run. Before a migration changes an existing database, the server saves a copy next to it: `<db>.pre-2.0.0` before the 2.0.0 tasks-table rebuild, `<db>.pre-3.0.0` before the 3.0.0 verification tables. An existing backup is never overwritten.
+
+Verifier keys are stored only as SHA-256 hashes.
 
 ## Development
 
@@ -340,6 +459,14 @@ npm install
 npm run build       # Build with tsup
 npm run typecheck   # Type-check without emitting
 npm run dev         # Build in watch mode
+```
+
+UI development with the Vite dev server: the page Vite serves doesn't carry the server's token, so pin one on both sides.
+
+```bash
+export MINDPM_UI_TOKEN=dev-$(openssl rand -hex 16)
+node dist/index.js        # in one terminal (keep stdin open, e.g. under your MCP client)
+npm run dev:ui            # in another; its proxy sends the token and the server's origin
 ```
 
 ## License

@@ -2,6 +2,7 @@
   import type { Task, TaskStatus, TaskPriority, TaskHistoryEvent } from '../lib/types.js';
   import { PRIORITY_ORDER } from '../lib/types.js';
   import { api } from '../lib/api.js';
+  import VerificationPanel from './VerificationPanel.svelte';
 
   interface Props {
     task: Task | null;
@@ -16,9 +17,15 @@
       tags: string[];
     }) => void;
     onClose: () => void;
+    // An Accept, Reopen or Resolve went through: the board reloads.
+    onChanged?: () => void;
   }
 
-  let { task, projectId, allTasks = [], defaultStatus = 'ready', onSave, onClose }: Props = $props();
+  let { task, projectId, allTasks = [], defaultStatus = 'ready', onSave, onClose, onChanged }: Props = $props();
+
+  const showVerification = $derived(
+    task !== null && ['needs_verification', 'verified', 'needs_human', 'done'].includes(task.status),
+  );
 
   let title = $state('');
   let description = $state('');
@@ -163,8 +170,10 @@
               <option value="claimed" disabled>Claimed</option>
               <option value="blocked">Blocked</option>
               <option value="needs_human">Needs Human</option>
-              <option value="needs_verification">Needs Verification</option>
-              <option value="done">Done</option>
+              <!-- Verification and acceptance have their own actions below. -->
+              <option value="needs_verification" disabled>Needs Verification</option>
+              <option value="verified" disabled>Verified</option>
+              <option value="done" disabled={task?.status !== 'done'}>Done</option>
               <option value="cancelled">Cancelled</option>
             </select>
           </div>
@@ -181,6 +190,10 @@
         <button type="submit" class="btn-save">{isEdit ? 'Save' : 'Create'}</button>
       </div>
     </form>
+
+    {#if task && showVerification}
+      <VerificationPanel {task} onChanged={() => onChanged?.()} />
+    {/if}
 
     {#if isEdit && blockedByTasks().length > 0}
       <div class="blocked-section">

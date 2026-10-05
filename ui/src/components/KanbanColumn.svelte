@@ -3,7 +3,7 @@
   import TaskCard from './TaskCard.svelte';
 
   const WIP_LIMIT = 5;
-  const STORAGE_KEY = 'mindpm_collapsed_cols';
+  const STORAGE_KEY = 'mindpm_col_collapsed';
 
   interface Props {
     status: TaskStatus;
@@ -24,29 +24,31 @@
 
   let dragOver = $state(false);
 
-  // Collapse state persisted per column status
-  function loadCollapsed(): boolean {
+  // Collapse state: an explicit choice per status is remembered; without one,
+  // a column starts collapsed when it is empty.
+  function loadOverride(): boolean | null {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      const set: string[] = raw ? JSON.parse(raw) : [];
-      return set.includes(status);
-    } catch { return false; }
+      const map: Record<string, boolean> = raw ? JSON.parse(raw) : {};
+      return typeof map[status] === 'boolean' ? map[status] : null;
+    } catch { return null; }
   }
 
-  function saveCollapsed(collapsed: boolean) {
+  function saveOverride(value: boolean) {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      const set: string[] = raw ? JSON.parse(raw) : [];
-      const next = collapsed ? [...new Set([...set, status])] : set.filter(s => s !== status);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      const map: Record<string, boolean> = raw ? JSON.parse(raw) : {};
+      map[status] = value;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
     } catch {}
   }
 
-  let collapsed = $state(loadCollapsed());
+  let override = $state(loadOverride());
+  const collapsed = $derived(override ?? tasks.length === 0);
 
   function toggleCollapse() {
-    collapsed = !collapsed;
-    saveCollapsed(collapsed);
+    override = !collapsed;
+    saveOverride(override);
   }
 
   const wipWarning = $derived(status === 'claimed' && tasks.length > WIP_LIMIT);

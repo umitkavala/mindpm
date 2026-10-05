@@ -1,15 +1,36 @@
 <script lang="ts">
   import type { Task } from '../lib/types.js';
+  import { STATUS_CHIP } from '../lib/types.js';
 
   interface Props {
     task: Task;
     subtaskCount?: number;
+    // Grouped board: a lane holds several statuses, so the card names its own.
+    showChip?: boolean;
+    // Review lane: low-risk verified cards join the batch accept.
+    batch?: { checked: boolean; onToggle: (task: Task) => void };
+    onAccept?: (task: Task) => void;
+    onReopen?: (task: Task) => void;
+    onResolve?: (task: Task) => void;
+    blockerKeys?: string[];
     onEdit: (task: Task) => void;
     onDelete: (task: Task) => void;
     onDragStart: (e: DragEvent, task: Task) => void;
   }
 
-  let { task, subtaskCount = 0, onEdit, onDelete, onDragStart }: Props = $props();
+  let {
+    task, subtaskCount = 0, showChip = false, batch, onAccept, onReopen, onResolve, blockerKeys = [], onEdit, onDelete, onDragStart,
+  }: Props = $props();
+
+  const question = $derived.by(() => {
+    if (!task.escalation) return null;
+    try {
+      return (JSON.parse(task.escalation) as { question?: string }).question ?? null;
+    } catch {
+      return null;
+    }
+  });
+  const meta = $derived([task.spec_key, task.spec_key ? `${task.risk_level} risk` : null].filter(Boolean).join(' · '));
 
   let dragging = $state(false);
 
@@ -57,7 +78,11 @@
   onkeydown={(e) => { if (e.key === 'Enter') onEdit(task); }}
 >
   <div class="card-header">
-    <span class="priority-badge {priorityClass}">{task.priority}</span>
+    {#if showChip}
+      <span class="chip chip-{task.status}">{STATUS_CHIP[task.status]}</span>
+    {:else}
+      <span class="priority-badge {priorityClass}">{task.priority}</span>
+    {/if}
     <div class="card-header-right">
       {#if task.short_id}
         <span class="task-id">{task.short_id}</span>
@@ -72,8 +97,22 @@
     </div>
   </div>
   <div class="card-title">{task.title}</div>
-  {#if task.description}
+  {#if showChip}
+    <div class="card-meta">
+      <span class="priority-badge {priorityClass}">{task.priority}</span>{meta ? ` · ${meta}` : ''}
+    </div>
+  {/if}
+  {#if !showChip && task.description}
     <div class="card-desc">{task.description}</div>
+  {/if}
+  {#if task.status === 'claimed' && task.claimed_by}
+    <div class="card-extra">{task.claimed_by}{task.attempt_no ? ` · attempt ${task.attempt_no} of ${task.max_attempts ?? 3}` : ''}</div>
+  {:else if task.status === 'needs_verification'}
+    <div class="card-extra">{task.running_verifier ? `${task.running_verifier} running` : 'waiting for a verifier'}</div>
+  {:else if task.status === 'blocked' && blockerKeys.length}
+    <div class="card-extra">waiting on {blockerKeys.join(', ')}</div>
+  {:else if task.status === 'needs_human' && question}
+    <div class="card-question">{question}</div>
   {/if}
   {#if tags.length > 0}
     <div class="card-tags">
@@ -82,7 +121,27 @@
       {/each}
     </div>
   {/if}
-  {#if blockerCount() > 0 || subtaskCount > 0}
+  {#if batch}
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <label class="batch" onclick={(e) => e.stopPropagation()}>
+      <input type="checkbox" checked={batch.checked} onchange={() => batch.onToggle(task)} /> in low-risk batch
+    </label>
+  {/if}
+  {#if onAccept || onReopen || onResolve}
+    <div class="card-actions">
+      {#if onAccept}
+        <button type="button" class="act act-primary" onclick={(e) => { e.stopPropagation(); onAccept(task); }}>Accept</button>
+      {/if}
+      {#if onReopen}
+        <button type="button" class="act" onclick={(e) => { e.stopPropagation(); onReopen(task); }}>Reopen</button>
+      {/if}
+      {#if onResolve}
+        <button type="button" class="act act-resolve" onclick={(e) => { e.stopPropagation(); onResolve(task); }}>Resolve</button>
+      {/if}
+    </div>
+  {/if}
+  {#if !showChip && (blockerCount() > 0 || subtaskCount > 0)}
     <div class="card-footer">
       {#if blockerCount() > 0}
         <span class="badge badge-blocked">⊘ blocked by {blockerCount()}</span>
@@ -189,6 +248,70 @@
     -webkit-box-orient: vertical;
     line-height: 1.4;
   }
+
+  .chip {
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    padding: 1px 6px;
+    border: 1px solid currentColor;
+    border-radius: var(--radius-sm);
+  }
+  .chip-backlog { color: var(--status-backlog); }
+  .chip-ready { color: var(--status-ready); }
+  .chip-claimed { color: var(--status-claimed); }
+  .chip-needs_verification { color: var(--status-verifying); }
+  .chip-verified { color: var(--status-verified); }
+  .chip-needs_human { color: var(--status-needs-human); }
+  .chip-blocked { color: var(--status-blocked); }
+  .chip-done, .chip-cancelled { color: var(--status-done); }
+
+  .card-meta, .card-extra {
+    font-size: 0.68rem;
+    color: var(--text-dim);
+    margin-top: 4px;
+  }
+  .card-meta .priority-badge { font-size: 0.62rem; }
+
+  .card-question {
+    font-size: 0.7rem;
+    color: var(--text);
+    background: var(--surface-2);
+    border-radius: var(--radius-sm);
+    padding: 6px;
+    margin-top: 6px;
+    line-height: 1.4;
+  }
+
+  .batch {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.68rem;
+    color: var(--text-dim);
+    margin-top: 6px;
+    cursor: pointer;
+  }
+
+  .card-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .act {
+    flex: 1;
+    min-height: 32px;
+    background: none;
+    color: var(--text);
+    border: 1px solid var(--border-bright);
+    border-radius: var(--radius-sm);
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .act-primary { background: var(--primary); color: var(--bg); border-color: var(--primary); }
+  .act-resolve { color: var(--status-needs-human); border-color: currentColor; }
 
   .card-tags {
     display: flex;

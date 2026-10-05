@@ -26,6 +26,17 @@
   --priority-medium: #39d353;
   --priority-low: #3d444d;
 
+  /* Status chips (grouped board) */
+  --status-ready: #4ade80;
+  --status-backlog: #a3a3a3;
+  --status-claimed: #60a5fa;
+  --status-verifying: #fbbf24;
+  --status-verified: #2dd4bf;
+  --status-needs-human: #f472b6;
+  --status-blocked: #fb923c;
+  --status-done: #8a8a8a;
+  --attention: #4a3a1c;
+
   --column-bg: #111111;
   --card-shadow: none;
   --card-shadow-hover: 0 0 0 1px var(--border-bright);
