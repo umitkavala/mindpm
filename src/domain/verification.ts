@@ -3,7 +3,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { generateId } from '../utils/ids.js';
 import { resolveRepoPath, resolveTaskId } from '../db/queries.js';
 import { afterUsedAttempt, type AttemptRow } from './attempts.js';
-import { assertDelegateMayAct, canTransition, moverOf, recordHistory, setStatus, ToolError, type Actor, type TaskStatus } from './lifecycle.js';
+import { assertDelegateMayAct, assertNotSubmitter, canTransition, moverOf, recordHistory, setStatus, ToolError, type Actor, type TaskStatus } from './lifecycle.js';
 import { criterionKey, type CriterionRow, type RiskLevel, type SpecRow } from './specs.js';
 
 // The verification gate (Phase 2). Verifiers authenticate with a key mindpm
@@ -611,6 +611,7 @@ export function acceptTask(db: Database.Database, taskRef: string, actor: Actor)
   const ui = actor.channel === 'ui';
   if (actor.kind !== 'human') throw new ToolError('forbidden', `${actor.id} cannot accept work. Pass on_behalf_of with the human who asked.`);
   assertDelegateMayAct(db, actor, task.id);
+  assertNotSubmitter(db, actor, task.id);
   const direct = unverifiedReviewAllowed(db, task);
   if (task.status === 'needs_verification' && !direct) {
     if (!ui) throw new ToolError('illegal_transition', `${task.key} has not been verified yet.`);

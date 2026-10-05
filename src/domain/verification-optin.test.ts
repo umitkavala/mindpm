@@ -19,6 +19,7 @@ import {
   verificationMode, verificationSetup,
 } from './verification.js';
 import { registerTestVerifier, runVerification } from '../test-helpers/verifier.js';
+import { newConnectionForTests } from '../utils/session-state.js';
 
 // Verification is opt-in per project (3.1). With it off, a human accepts or
 // reopens submitted work straight from needs_verification; with it on, the
@@ -63,6 +64,8 @@ async function submitted(risk: 'low' | 'medium' | 'high', sha = 'abcdef1') {
     criteria_results: claim.brief.criteria.map((c: any) => ({ criterion_id: c.key, result: 'pass', evidence: 'test passed' })),
   });
   expect(out).toEqual({ status: 'needs_verification' });
+  // The human who accepts works from another session than the executor.
+  newConnectionForTests();
   return t as { task_id: string; key: string };
 }
 

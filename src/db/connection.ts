@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { homedir } from 'os';
-import { createSchema, needsPhase1Migration, needsPhase2Migration, needsVerificationSettingMigration, runMigrations } from './schema.js';
+import { createSchema, needsPhase1Migration, needsPhase2Migration, needsSubmittedFromMigration, needsVerificationSettingMigration, runMigrations } from './schema.js';
 import { AGENT_INSTRUCTIONS, AGENT_INSTRUCTIONS_VERSION } from '../tools/meta.js';
 
 const MARKER_RE = /^<!-- mindpm agent instructions v(\S+) -->/;
@@ -35,6 +35,7 @@ export function backupBeforeMigration(database: Database.Database, dbPath: strin
   const suffix = needsPhase1Migration(database) ? 'pre-2.0.0'
     : needsPhase2Migration(database) ? 'pre-3.0.0'
     : needsVerificationSettingMigration(database) ? 'pre-3.1.0'
+    : needsSubmittedFromMigration(database) ? 'pre-3.2.0'
     : null;
   if (!suffix) return null;
   const backup = `${dbPath}.${suffix}`;

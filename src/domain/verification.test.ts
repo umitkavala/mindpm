@@ -20,6 +20,7 @@ import {
   revokeVerifier, runsForTask, setVerifierConfig, startVerification,
 } from './verification.js';
 import { registerTestVerifier, runVerification } from '../test-helpers/verifier.js';
+import { newConnectionForTests } from '../utils/session-state.js';
 
 let callTool: ReturnType<typeof createToolCaller>;
 const call = async (name: string, args: Record<string, unknown>) => parseToolResult(await callTool(name, args));
@@ -73,6 +74,8 @@ async function claimAndSubmit(taskId: string, actor: string, sha: string) {
     criteria_results: claim.brief.criteria.map((c: any) => ({ criterion_id: c.key, result: 'pass', evidence: 'passed' })),
   });
   expect(out).toEqual({ status: 'needs_verification' });
+  // The human who accepts works from another session than the executor.
+  newConnectionForTests();
   return claim;
 }
 
@@ -182,6 +185,7 @@ describe('the flow from the Phase 2 doc', () => {
       claim_token: c.claim_token, branch: 'feature/p-1', head_sha: 'e41a07b', files_touched: ['src/Sweep.cs'], summary: 'Fixed.',
       criteria_results: c.brief.criteria.map((x: any) => ({ criterion_id: x.key, result: 'pass', evidence: 'passed' })),
     });
+    newConnectionForTests();
     const v = authenticateVerifier(db(), local);
     const run3 = startVerification(db(), v, 'p-1');
     expect(run3.head_sha).toBe('e41a07b');

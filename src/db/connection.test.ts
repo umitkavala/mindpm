@@ -194,3 +194,23 @@ describe('the 3.1 migration: verification becomes opt-in per project', () => {
     expect(modes(getDb()).p1).toBe('off');
   });
 });
+
+describe('the 3.2 migration: attempts record the connection that submitted them', () => {
+  it('adds attempts.submitted_from, leaves existing attempts NULL, and backs up first', () => {
+    const path = join(dir, 'memory.db');
+    process.env.MINDPM_DB_PATH = path;
+    getDb();
+    closeDb();
+    const old = new Database(path);
+    old.exec(`
+      ALTER TABLE attempts DROP COLUMN submitted_from;
+      INSERT INTO projects (id, name, slug) VALUES ('p1', 'P', 'p');
+      INSERT INTO tasks (id, project_id, seq, title, status) VALUES ('t1', 'p1', 1, 'Submitted', 'needs_verification');
+      INSERT INTO attempts (id, task_id, attempt_no, actor, claim_token, outcome) VALUES ('a1', 't1', 1, 'agent:cli-a', 'tok', 'submitted');
+    `);
+    old.close();
+    const db = getDb();
+    expect(existsSync(`${path}.pre-3.2.0`)).toBe(true);
+    expect(db.prepare("SELECT outcome, submitted_from FROM attempts WHERE id = 'a1'").get()).toEqual({ outcome: 'submitted', submitted_from: null });
+  });
+});
