@@ -1,0 +1,10 @@
+# GitHub Pages builds this folder with Jekyll: https://umitkavala.github.io/mindpm/
+title: mindpm
+description: Project memory and a control plane for AI coding agents.
+theme: jekyll-theme-cayman
+# Rewrites links between .md pages to the built .html pages.
+plugins:
+  - jekyll-relative-links
+relative_links:
+  enabled: true
+  collections: false

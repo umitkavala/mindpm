@@ -1,5 +1,5 @@
 // Session Brief: a deterministic delta between the end of a project's last
-// session and now. See README for the payload shape. Every piece here is
+// session and now. See docs/session-brief.md for the payload shape. Every piece here is
 // designed to degrade rather than throw — a broken repo or a missing
 // project must never break start_session.
 

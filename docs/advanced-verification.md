@@ -82,3 +82,5 @@ Edited in the Verifiers tab only. It names every check the verifier runs, where 
   `status` is `passed`, `failed` or `skipped`; `duration_ms` and `message` are optional.
 - **`command` criteria**: `verify_ref` runs in the checkout; exit 0 passes.
 - **Reviewer**: for `review` criteria, `reviewer.command` (default `claude -p`) gets a fixed prompt with the spec, the criteria and the diff against `base_branch` on stdin, and must answer `{"results":[{"criterion":"AC-12.3","result":"pass","rationale":"..."}]}`. A pass without a rationale counts as missing.
+
+[← Documentation](index.md)

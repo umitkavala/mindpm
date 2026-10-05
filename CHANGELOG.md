@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.1.1
+
+Documentation only; no code changes.
+
+- The README is now a short overview with a one-command quick start. Everything else moved into a documentation site at https://umitkavala.github.io/mindpm/, served by GitHub Pages from `docs/`.
+- Setup docs: the Claude Code config path was wrong (`~/.claude/claude_desktop_config.json`). Claude Code now uses `claude mcp add`, and Claude Desktop's real config locations are listed.
+- `package.json` `homepage` points to the documentation site.
+
 ## 3.1.0
 
 Verification is opt-in per project, and off by default. While a human reviews every submission, the gate adds setup without catching much; it stays fully intact for agents that run unattended.
