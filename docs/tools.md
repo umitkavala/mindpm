@@ -1,6 +1,7 @@
 # MCP tools
 
 ## Projects
+
 | Tool | Description |
 |------|-------------|
 | `create_project` | Create a new project |
@@ -10,6 +11,7 @@
 | `set_execution_defaults` | Coding conventions and verification commands included in every task brief |
 
 ## Tasks
+
 | Tool | Description |
 |------|-------------|
 | `create_task` | Add a task, optionally linked to a spec and its criteria |
@@ -19,6 +21,7 @@
 | `get_next_tasks` | Planning view: highest priority ready or claimed tasks |
 
 ## Specs
+
 | Tool | Description |
 |------|-------------|
 | `create_spec` | Draft a spec with acceptance criteria and a risk level |
@@ -28,6 +31,7 @@
 | `get_spec` | Spec, criteria, linked tasks and decisions |
 
 ## Executor
+
 | Tool | Description |
 |------|-------------|
 | `pick_task` | Next workable task: ready, spec approved, blockers done, no live lease |
@@ -51,6 +55,7 @@ These require a verifier key. `mindpm verify` uses them through the database dir
 | `finish_verification` | End the run; the server computes passed or failed, or records an error |
 
 ## Review
+
 | Tool | Description |
 |------|-------------|
 | `accept_tasks` | Move low-risk verified tasks (or submitted ones, with verification off) to done, when a human asked (`on_behalf_of`). Medium and high risk are refused |
@@ -58,12 +63,14 @@ These require a verifier key. `mindpm verify` uses them through the database dir
 | `review_task` | **Deprecated.** `accept` behaves like `accept_tasks` for one task; `reject` is refused. Removed in the next release |
 
 ## Decisions
+
 | Tool | Description |
 |------|-------------|
 | `log_decision` | Record a decision with reasoning, optionally linked to a spec or superseding an older one |
 | `list_decisions` | Browse decision history |
 
 ## Notes & Context
+
 | Tool | Description |
 |------|-------------|
 | `add_note` | Add a note (architecture, bug, idea, etc.) |
@@ -72,6 +79,7 @@ These require a verifier key. `mindpm verify` uses them through the database dir
 | `get_context` | Retrieve context |
 
 ## Sessions
+
 | Tool | Description |
 |------|-------------|
 | `start_session` | Get full project context + last session's next steps + session brief |
@@ -79,11 +87,10 @@ These require a verifier key. `mindpm verify` uses them through the database dir
 | `get_session_brief` | Read-only: what changed since the last session ended, without opening a session |
 
 ## Query
+
 | Tool | Description |
 |------|-------------|
 | `query` | Read-only SQL against the database |
 | `get_project_summary` | Tasks by status, blockers, recent activity |
 | `get_blockers` | All blocked tasks with what's blocking them |
 | `search` | Full-text search across tasks, notes, decisions, specs and attempt root causes |
-
-[← Documentation](index.md)

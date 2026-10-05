@@ -1,0 +1,69 @@
+site_name: mindpm
+site_description: Project memory and a control plane for AI coding agents, over MCP.
+site_url: https://umitkavala.github.io/mindpm/
+repo_url: https://github.com/umitkavala/mindpm
+repo_name: umitkavala/mindpm
+edit_uri: edit/main/docs/
+copyright: MIT licensed
+
+strict: true
+# Pages keep their .html addresses (setup.html, not setup/), so links in
+# published READMEs keep working.
+use_directory_urls: false
+
+validation:
+  links:
+    anchors: warn
+
+theme:
+  name: material
+  logo: assets/logo.svg
+  favicon: assets/logo.svg
+  features:
+    - content.code.copy
+    - content.action.edit
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - search.highlight
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: deep purple
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: deep purple
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+
+nav:
+  - Home: index.md
+  - Getting started: setup.md
+  - Concepts:
+      - How it works: architecture.md
+      - Agent execution: agent-execution.md
+      - Session brief: session-brief.md
+  - Guides:
+      - Kanban board: kanban-board.md
+      - Unattended agents and verification: advanced-verification.md
+  - Reference:
+      - MCP tools: tools.md
+      - Security model: security.md
+  - Development: development.md

@@ -18,4 +18,12 @@ node dist/index.js        # in one terminal (keep stdin open, e.g. under your MC
 npm run dev:ui            # in another; its proxy sends the token and the server's origin
 ```
 
-[← Documentation](index.md)
+## Documentation site
+
+The docs are built with [MkDocs Material](https://squidfunk.github.io/mkdocs-material/) from `docs/` and `mkdocs.yml`. `.github/workflows/docs.yml` runs a strict build on every pull request that touches them and deploys to GitHub Pages from `main`.
+
+```bash
+python3 -m venv .venv && .venv/bin/pip install -r requirements-docs.txt
+.venv/bin/mkdocs serve      # http://127.0.0.1:8000/mindpm/, reloads on save
+.venv/bin/mkdocs build --strict
+```
