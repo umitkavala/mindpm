@@ -128,7 +128,7 @@
     border-radius: var(--radius);
     width: 270px;
     min-width: 270px;
-    max-height: calc(100vh - 60px);
+    max-height: 100%;
     display: flex;
     flex-direction: column;
     transition: border-color 0.15s, width 0.2s, min-width 0.2s;
@@ -292,6 +292,7 @@
     gap: 6px;
     overflow-y: auto;
     flex: 1;
+    min-height: 0;
   }
 
   .load-more {

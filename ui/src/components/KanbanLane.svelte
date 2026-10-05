@@ -133,6 +133,7 @@
     gap: 6px;
     overflow-y: auto;
     flex: 1;
+    min-height: 0;
   }
   .empty { font-size: 0.68rem; color: var(--text-muted); padding: 6px 4px; }
 
