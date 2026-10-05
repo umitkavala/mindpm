@@ -465,6 +465,15 @@ describe('pick_task', () => {
 });
 
 describe('task brief', () => {
+  it('explains how verify_ref finds a test, only when the task has test criteria', async () => {
+    const { task } = await readyTask();
+    expect((await call('get_task_brief', { task_id: task.task_id })).test_ref_rule).toMatch(/exactly one test or test group.*slugify > keeps digits/);
+    const { task: other } = await readyTask({
+      title: 'Docs only', criteria: [{ statement: 'README explains the timeout', verify_kind: 'review', verify_ref: 'README section' }],
+    });
+    expect(await call('get_task_brief', { task_id: other.task_id })).not.toHaveProperty('test_ref_rule');
+  });
+
   it('merges task verification over project defaults', async () => {
     const { task } = await readyTask({}, { verification: { unit: 'dotnet test tests/unit --filter Inactivity', lint: 'dotnet format --verify-no-changes' } });
     const brief = await call('get_task_brief', { task_id: task.task_id });

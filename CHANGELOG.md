@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+Fixes from a dry run of the agent workflow on a small demo project.
+
+### Security
+
+- An executor could accept its own low-risk work by calling `accept_tasks` as `human:<name>`, or under another agent id with `on_behalf_of`: the checks only compared declared actor ids. `submit_task` now records the connection (MCP client process) it came from, and that connection can't accept or move the submission under any actor. The Kanban UI and other sessions can.
+
+### Fixed
+
+- `test` criteria can name a test group. `verify_ref` is matched against `classname.name`, then as a path through the report's nested `<testsuite>` groups (`slugify`, `slugify > keeps digits`), outer groups optional. A group passes when at least one of its tests ran and none failed, and fails when all were skipped. With Node's built-in runner, which puts `describe()` names only on the enclosing `<testsuite>`, no criterion could match a group before, so verification failed although every test passed.
+- A ref that matches a group and a test, or the same group in two files, is reported as ambiguous with every candidate.
+
+### Added
+
+- The executor brief explains how `verify_ref` is matched (`test_ref_rule`) when the task has test criteria.
+- `create_task` and `update_task` warn when a `test` or `command` criterion is also on another open task: each task is verified on its own commit, so a shared one fails whichever is verified first.
+- Docs: Node's built-in test runner (`node --test --test-reporter=junit`) is a supported reporter.
+
+### Notes
+
+- The migration adds a nullable `attempts.submitted_from` column. The server first copies the database to `<db>.pre-3.2.0`. Submissions from before the upgrade keep the actor checks only.
+
 ## 3.1.2
 
 ### Fixed

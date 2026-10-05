@@ -28,6 +28,8 @@ export interface TaskBrief {
     approach: string | null; constraints: string[]; out_of_scope: string[];
   } | null;
   criteria: { id: string; key: string; statement: string; verify_kind: string; verify_ref: string | null }[];
+  // How the verifier finds a test criterion's test. Present when there is one.
+  test_ref_rule?: string;
   project: { name: string; tech_stack: string | null; conventions: string | null; repo_path: string | null };
   // Commands for the executor to run. Hints only: the verifier runs
   // verifier_checks, which only a human can change. Present only when the
@@ -39,6 +41,12 @@ export interface TaskBrief {
   previous_attempts: BriefAttempt[];
   trimmed?: { previous_attempts: number; decisions: number; hint: string };
 }
+
+// Matching is in src/verify/reports.ts (matchTest).
+export const TEST_REF_RULE =
+  'A test criterion\'s verify_ref must name exactly one test or test group in the JUnit report: classname.name, ' +
+  'or a path like "slugify > keeps digits" (outer groups optional; "slugify" alone names the describe("slugify") group, ' +
+  'which passes when at least one of its tests ran and none failed).';
 
 // Rough token estimate: ~4 characters per token for JSON-heavy English.
 export const estimateTokens = (value: unknown) => Math.ceil(JSON.stringify(value).length / 4);
@@ -160,6 +168,7 @@ export function buildBrief(db: Database.Database, taskId: string): TaskBrief {
     criteria: spec
       ? criteria.map(c => ({ id: c.id, key: criterionKey(spec, c), statement: c.statement, verify_kind: c.verify_kind, verify_ref: c.verify_ref }))
       : [],
+    ...(spec && criteria.some(c => c.verify_kind === 'test') ? { test_ref_rule: TEST_REF_RULE } : {}),
     project: {
       name: task.project_name,
       tech_stack: techStack(task.tech_stack),

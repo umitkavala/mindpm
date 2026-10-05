@@ -70,6 +70,30 @@ export function criteriaOf(db: Database.Database, specId: string): CriterionRow[
   return db.prepare('SELECT * FROM acceptance_criteria WHERE spec_id = ? ORDER BY seq').all(specId) as CriterionRow[];
 }
 
+// A test or command criterion is checked against each task's own commit, so
+// one attached to two open tasks fails whichever is verified first unless that
+// task also does the other's work. Review criteria can be shared.
+export function sharedCriteriaWarnings(db: Database.Database, spec: SpecRow, taskId: string): string[] {
+  const rows = db.prepare(
+    `SELECT c.id, c.seq, c.verify_kind, p.slug || '-' || t.seq AS other
+       FROM task_criteria mine
+       JOIN acceptance_criteria c ON c.id = mine.criterion_id
+       JOIN task_criteria tc ON tc.criterion_id = c.id AND tc.task_id != mine.task_id
+       JOIN tasks t ON t.id = tc.task_id
+       JOIN projects p ON p.id = t.project_id
+      WHERE mine.task_id = ? AND c.verify_kind IN ('test', 'command') AND t.status NOT IN ('done', 'cancelled')
+      ORDER BY c.seq, t.seq`,
+  ).all(taskId) as { id: string; seq: number; verify_kind: string; other: string }[];
+  const byCriterion = new Map<string, { key: string; kind: string; others: string[] }>();
+  for (const r of rows) {
+    const entry = byCriterion.get(r.id) ?? { key: criterionKey(spec, r), kind: r.verify_kind, others: [] };
+    entry.others.push(r.other);
+    byCriterion.set(r.id, entry);
+  }
+  return [...byCriterion.values()].map(e =>
+    `${e.key} (${e.kind}) is also on ${e.others.join(', ')}. Each task is verified on its own commit, so attach it only to the task that completes it.`);
+}
+
 // Resolve criterion refs (ids or "AC-<spec>.<n>" keys) against one spec.
 // Every ref must belong to that spec.
 export function resolveCriteria(db: Database.Database, spec: SpecRow, refs: string[]): CriterionRow[] {
