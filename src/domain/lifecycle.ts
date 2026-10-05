@@ -103,7 +103,9 @@ const TRANSITIONS: Record<string, Mover[]> = {
   'needs_verification->verified': ['verifier'],
   'needs_verification->ready': ['verifier'],
   'needs_verification->needs_human': ['human', 'verifier', 'system'],
-  // Legacy tasks with no submitted attempt only; acceptVerified checks that.
+  // Legacy tasks with no submitted attempt only; acceptTask checks that. With
+  // the project's verification off, acceptTask and reopenTask also allow
+  // needs_verification -> done and -> ready under the verified rules.
   'needs_verification->done': ['ui'],
   // Medium and high risk: UI only. Low risk: also accept_tasks, which checks
   // the risk level itself.

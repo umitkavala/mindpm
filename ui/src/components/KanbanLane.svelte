@@ -2,7 +2,7 @@
   import type { Task, LaneId, TaskStatus } from '../lib/types.js';
   import TaskCard from './TaskCard.svelte';
 
-  type CardExtras = Partial<Pick<import('svelte').ComponentProps<typeof TaskCard>, 'batch' | 'onAccept' | 'onReopen' | 'onResolve' | 'blockerKeys'>>;
+  type CardExtras = Partial<Pick<import('svelte').ComponentProps<typeof TaskCard>, 'batch' | 'onAccept' | 'onReopen' | 'onResolve' | 'reviewDirect' | 'blockerKeys'>>;
 
   interface Props {
     id: LaneId;

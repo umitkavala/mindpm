@@ -1,7 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 // Bump whenever AGENT_INSTRUCTIONS changes, so installs rewrite AGENT.md.
-const AGENT_INSTRUCTIONS_VERSION = '3.0.0';
+const AGENT_INSTRUCTIONS_VERSION = '3.1.0';
 
 const AGENT_INSTRUCTIONS = `# mindpm — Agent Instructions
 
@@ -41,7 +41,7 @@ Verifiers are different: they prove who they are with a secret key (\`MINDPM_VER
 1. \`pick_task\` → \`claim_task\`. Keep the \`claim_token\`; every later call uses it. The claim returns your brief: work from it, not from conversation memory.
 2. Read \`previous_attempts\` in the brief first. Don't repeat what already failed.
 3. Work on the task's branch. Call \`heartbeat\` with your phase (implementing, testing, fixing) well within the lease. If it returns \`spec_changed: true\`, re-read \`get_task_brief\` before continuing; \`spec_status: "draft"\` means the spec is being revised.
-4. Run the brief's \`verifier_checks\` (exactly what the verifier will run on your commit) and its \`verification\` commands.
+4. Run the brief's \`verification\` commands, and its \`verifier_checks\` when present (exactly what the verifier will run on your commit).
 5. End with exactly one of:
    - \`submit_task\`: branch, head SHA, files touched, a summary, and a result plus evidence for every criterion.
    - \`report_failure\`: a failure type, a specific root cause (≤600 chars) and notes on what to avoid (≤1500). For a dependency, name the blocking tasks in \`blocked_by\`.
@@ -54,7 +54,7 @@ If \`previous_attempts\` holds a \`verification\` block, a verifier reran the ch
 
 ## Verification and acceptance
 
-A registered verifier (\`mindpm verify\`) checks out the submitted commit, reruns the checks and records evidence for every criterion; the server decides the outcome. Passed work moves to verified, failed work returns to ready with findings. Then a human accepts it:
+Verification is a per-project setting a human turns on in the Kanban UI; it is off by default. When it is off, a human reviews submitted work in needs_verification and accepts it or reopens it with findings. When it is on, a registered verifier (\`mindpm verify\`) first checks out the submitted commit, reruns the checks and records evidence for every criterion; the server decides the outcome. Passed work moves to verified, failed work returns to ready with findings. Either way, a human accepts it:
 - Low risk: when the user asks, accept a batch with \`accept_tasks\` (\`actor: "agent:assistant"\`, \`on_behalf_of: "human:<their name>"\`). Never on your own initiative, never your own work.
 - Medium and high risk: only in the Kanban UI. Give the user the task's kanban_url.
 

@@ -125,7 +125,7 @@ export function registerVerifierTools(server: McpServer): void {
     {
       title: 'Accept Tasks',
       description:
-        'Move low-risk verified tasks to done, only when the user explicitly asked: act as yourself with on_behalf_of: "human:<their name>". ' +
+        'Move low-risk verified tasks to done (or submitted ones in needs_verification, when the project\'s verification is off), only when the user explicitly asked: act as yourself with on_behalf_of: "human:<their name>". ' +
         'Medium and high risk are refused: they are accepted in the Kanban UI only. You cannot accept work you submitted. Each task is accepted or refused on its own.',
       inputSchema: {
         actor: z.string().describe('Your own agent id, e.g. agent:assistant'),

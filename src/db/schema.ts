@@ -115,6 +115,19 @@ const PHASE1_TABLES = `
       UPDATE specs SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
     END;`;
 
+// Project-level changes a human made, such as turning verification on or off.
+const PROJECT_HISTORY_TABLE = `
+    CREATE TABLE IF NOT EXISTS project_history (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id),
+      event TEXT NOT NULL,
+      old_value TEXT,
+      new_value TEXT,
+      actor TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_project_history_project_id ON project_history(project_id);`;
+
 // Phase 2: verifiers and their runs. A run belongs to one attempt and one SHA;
 // check_results hold what was executed, criterion_results what was concluded.
 const PHASE2_TABLES = `
@@ -207,6 +220,7 @@ export function createSchema(db: Database.Database): void {
       verification_defaults TEXT,
       conventions TEXT,
       verifier_config TEXT,
+      verification TEXT NOT NULL DEFAULT 'off' CHECK(verification IN ('off', 'on')),
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
@@ -333,6 +347,7 @@ ${PHASE1_TABLES}
   // Phase 2 tables reference attempts and acceptance_criteria, which exist by
   // now on any database (PHASE1_TABLES above creates them if missing).
   db.exec(PHASE2_TABLES);
+  db.exec(PROJECT_HISTORY_TABLE);
 
   // Rebuild so the index is consistent with any rows that already exist before
   // the sync triggers start firing. Without this, the first UPDATE/DELETE on a
@@ -484,6 +499,7 @@ export function runMigrations(db: Database.Database): void {
 
   migratePhase1(db);
   migratePhase2(db);
+  migrateVerificationSetting(db);
 
   // Add session-brief columns to sessions if missing
   const sessionCols = (db.pragma('table_info(sessions)') as { name: string }[]).map(c => c.name);
@@ -527,6 +543,40 @@ export function needsPhase1Migration(db: Database.Database): boolean {
 export function needsPhase2Migration(db: Database.Database): boolean {
   const hasAttempts = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='attempts'").get();
   return !!hasAttempts && !columnsOf(db, 'attempts').includes('verification_outcome');
+}
+
+// True when this database predates 3.1 and the next runMigrations will add
+// the per-project verification setting.
+export function needsVerificationSettingMigration(db: Database.Database): boolean {
+  const hasProjects = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='projects'").get();
+  return !!hasProjects && !columnsOf(db, 'projects').includes('verification');
+}
+
+// 3.1: verification became opt-in per project. Projects an active local
+// verifier key covers at upgrade time keep the gate; all others turn it off.
+function migrateVerificationSetting(db: Database.Database): void {
+  if (!needsVerificationSettingMigration(db)) return;
+  db.transaction(() => {
+    db.exec("ALTER TABLE projects ADD COLUMN verification TEXT NOT NULL DEFAULT 'off' CHECK(verification IN ('off', 'on'))");
+    db.exec(PROJECT_HISTORY_TABLE);
+    const keys = db.prepare("SELECT project_ids FROM verifiers WHERE revoked_at IS NULL AND kind = 'local'").all() as { project_ids: string }[];
+    const covered = new Set<string>();
+    for (const k of keys) {
+      try {
+        const ids = JSON.parse(k.project_ids);
+        if (Array.isArray(ids)) ids.forEach(id => covered.add(String(id)));
+      } catch {}
+    }
+    const turnOn = db.prepare("UPDATE projects SET verification = 'on' WHERE id = ?");
+    const log = db.prepare(
+      "INSERT INTO project_history (id, project_id, event, old_value, new_value, actor) VALUES (?, ?, 'verification_changed', NULL, 'on', 'system:migration')",
+    );
+    for (const { id } of db.prepare('SELECT id FROM projects').all() as { id: string }[]) {
+      if (!covered.has('*') && !covered.has(id)) continue;
+      turnOn.run(id);
+      log.run(generateId(), id);
+    }
+  })();
 }
 
 // Phase 2 (verification gate). Additive only: the new tables come from

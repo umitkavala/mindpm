@@ -222,6 +222,57 @@ export function setVerifierConfig(db: Database.Database, projectId: string, conf
   return c;
 }
 
+// --- The per-project switch -------------------------------------------------
+
+// Off (the default): a human accepts submitted work straight from
+// needs_verification. On: a verifier must pass it first. UI only, like the
+// config: an agent that could switch it off could skip its own checks.
+export type VerificationMode = 'off' | 'on';
+
+export function verificationMode(db: Database.Database, projectId: string): VerificationMode {
+  const row = db.prepare('SELECT verification FROM projects WHERE id = ?').get(projectId) as { verification: string | null } | undefined;
+  return row?.verification === 'on' ? 'on' : 'off';
+}
+
+export interface VerificationSetup {
+  mode: VerificationMode;
+  // What turning it on still needs; empty when it can be turned on.
+  missing: string[];
+  // Set when it is on but can no longer run, e.g. after the last key was revoked.
+  warning: string | null;
+}
+
+export function verificationSetup(db: Database.Database, projectId: string): VerificationSetup {
+  const mode = verificationMode(db, projectId);
+  const missing: string[] = [];
+  const active = (db.prepare("SELECT * FROM verifiers WHERE revoked_at IS NULL AND kind = 'local'").all() as VerifierRow[])
+    .some(v => covers(v, projectId));
+  if (!active) missing.push('a local verifier key that covers this project');
+  if (plannedChecks(db, projectId).length === 0) missing.push('a saved verifier config with at least one check');
+  const warning = mode === 'on' && missing.length > 0
+    ? `Verification is on, but this project has no ${missing.join(' and no ')}. Submitted tasks will wait until you fix that or turn verification off.`
+    : null;
+  return { mode, missing, warning };
+}
+
+export function setVerificationMode(db: Database.Database, projectId: string, mode: unknown, actor: Actor): VerificationSetup {
+  requireUi(actor, 'Turning verification on or off');
+  if (mode !== 'on' && mode !== 'off') throw new ToolError('invalid_mode', 'verification must be "on" or "off".');
+  return db.transaction(() => {
+    if (!db.prepare('SELECT 1 FROM projects WHERE id = ?').get(projectId)) throw new ToolError('not_found', 'Project not found.');
+    const before = verificationSetup(db, projectId);
+    if (before.mode === mode) return before;
+    if (mode === 'on' && before.missing.length > 0) {
+      throw new ToolError('not_ready', `Verification stays off: this project needs ${before.missing.join(' and ')}.`);
+    }
+    db.prepare('UPDATE projects SET verification = ? WHERE id = ?').run(mode, projectId);
+    db.prepare(
+      'INSERT INTO project_history (id, project_id, event, old_value, new_value, actor) VALUES (?, ?, ?, ?, ?, ?)',
+    ).run(generateId(), projectId, 'verification_changed', before.mode, mode, actor.id);
+    return verificationSetup(db, projectId);
+  }).immediate();
+}
+
 function taskCriteria(db: Database.Database, task: { id: string; spec_id: string | null }) {
   if (!task.spec_id) return [];
   const spec = db.prepare('SELECT * FROM specs WHERE id = ?').get(task.spec_id) as SpecRow;
@@ -268,7 +319,8 @@ export interface PendingVerification { task_id: string; key: string; title: stri
 
 // Tasks waiting for a verifier: in needs_verification with a submitted SHA
 // and no running run, in projects the key covers, oldest submission first.
-// Legacy tasks without a submission can't be verified and are left out.
+// Legacy tasks without a submission can't be verified and are left out, and
+// so are projects with verification off: a human accepts those directly.
 export function pendingVerifications(db: Database.Database, verifier: Verifier, projectId?: string): PendingVerification[] {
   expireRuns(db);
   const rows = db.prepare(
@@ -276,7 +328,7 @@ export function pendingVerifications(db: Database.Database, verifier: Verifier, 
      FROM tasks t
      JOIN projects p ON p.id = t.project_id
      JOIN attempts a ON a.id = (SELECT id FROM attempts WHERE task_id = t.id AND outcome = 'submitted' ORDER BY attempt_no DESC LIMIT 1)
-     WHERE t.status = 'needs_verification' AND a.head_sha IS NOT NULL
+     WHERE t.status = 'needs_verification' AND a.head_sha IS NOT NULL AND p.verification = 'on'
        AND NOT EXISTS (SELECT 1 FROM verification_runs r WHERE r.task_id = t.id AND r.status = 'running')
        ${projectId ? 'AND t.project_id = ?' : ''}
      ORDER BY a.ended_at ASC, t.seq ASC`,
@@ -309,6 +361,9 @@ export function startVerification(db: Database.Database, verifier: Verifier, tas
   return db.transaction(() => {
     const task = requireTask(db, taskRef);
     if (!covers(verifier.row, task.project_id)) throw new ToolError('forbidden', `verifier:${verifier.row.name} does not cover this project.`);
+    if (verificationMode(db, task.project_id) === 'off') {
+      throw new ToolError('verification_off', `Verification is off for ${task.key}'s project; a human accepts its work directly.`);
+    }
     if (task.status !== 'needs_verification') throw new ToolError('not_pending', `${task.key} is ${task.status}, not needs_verification.`);
     const attempt = latestSubmission(db, task.id);
     if (!attempt?.head_sha) {
@@ -535,27 +590,44 @@ export function finishVerification(
 
 // --- Human acceptance ------------------------------------------------------
 
+// With verification off, needs_verification is where a human reviews
+// submitted work: it can be accepted or reopened directly. A run a verifier
+// started before the switch is superseded so it can't move the task later.
+function unverifiedReviewAllowed(db: Database.Database, task: TaskRow): boolean {
+  return task.status === 'needs_verification' && verificationMode(db, task.project_id) === 'off';
+}
+
+function supersedeRunningRuns(db: Database.Database, taskId: string, reason: string): void {
+  db.prepare("UPDATE verification_runs SET status = 'superseded', error_reason = ?, ended_at = CURRENT_TIMESTAMP WHERE task_id = ? AND status = 'running'")
+    .run(reason, taskId);
+}
+
 // verified → done. Through the UI for any risk; elsewhere (accept_tasks with a
-// human or delegate) low risk only. Legacy tasks that never had a submission
-// can be accepted from needs_verification in the UI.
+// human or delegate) low risk only. With verification off, the same rules
+// apply to needs_verification → done. With it on, legacy tasks that never had
+// a submission can be accepted from needs_verification in the UI.
 export function acceptTask(db: Database.Database, taskRef: string, actor: Actor): { task_id: string; key: string; status: TaskStatus } {
   const task = requireTask(db, taskRef);
   const ui = actor.channel === 'ui';
   if (actor.kind !== 'human') throw new ToolError('forbidden', `${actor.id} cannot accept work. Pass on_behalf_of with the human who asked.`);
   assertDelegateMayAct(db, actor, task.id);
-  if (task.status === 'needs_verification') {
+  const direct = unverifiedReviewAllowed(db, task);
+  if (task.status === 'needs_verification' && !direct) {
     if (!ui) throw new ToolError('illegal_transition', `${task.key} has not been verified yet.`);
     if (latestSubmission(db, task.id)?.head_sha) {
       throw new ToolError('illegal_transition', `${task.key} has a submitted commit; a verifier must verify it before it can be accepted.`);
     }
-  } else if (task.status !== 'verified') {
+  } else if (task.status !== 'verified' && !direct) {
     throw new ToolError('illegal_transition', `${task.key} is ${task.status}; only verified tasks can be accepted.`);
   }
   const risk = riskOf(db, task);
   if (!ui && risk !== 'low') {
     throw new ToolError('illegal_transition', `${task.key} is ${risk} risk; it can only be accepted in the Kanban UI.`);
   }
-  if (!canTransition(task.status, 'done', moverOf(actor))) throw new ToolError('illegal_transition', `${task.status} → done is not allowed for ${actor.id}.`);
+  if (!direct && !canTransition(task.status, 'done', moverOf(actor))) {
+    throw new ToolError('illegal_transition', `${task.status} → done is not allowed for ${actor.id}.`);
+  }
+  if (direct) supersedeRunningRuns(db, task.id, 'Accepted with verification off.');
   setStatus(db, task.id, task.status, 'done', actor, latestSubmission(db, task.id)?.id ?? null);
   return { task_id: task.id, key: task.key, status: 'done' };
 }
@@ -575,21 +647,26 @@ export function acceptTasks(db: Database.Database, taskRefs: string[], actor: Ac
   return { accepted, refused };
 }
 
-// verified → ready with findings: a human overrides a pass. The findings go
-// into the attempt and the next brief, and the attempt is used.
+// verified → ready with findings: a human overrides a pass. With verification
+// off, also needs_verification → ready: a human rejects submitted work. The
+// findings go into the attempt and the next brief, and the attempt is used.
 export function reopenTask(db: Database.Database, taskRef: string, findings: string, actor: Actor): { task_id: string; status: TaskStatus } {
-  requireUi(actor, 'Reopening verified work');
+  requireUi(actor, 'Reopening submitted work');
   if (!findings?.trim()) throw new ToolError('findings_required', 'Reopening needs findings: what is wrong and what to change.');
   if (findings.length > 1500) throw new ToolError('too_long', 'findings are capped at 1500 characters.');
   return db.transaction(() => {
     const task = requireTask(db, taskRef);
-    if (task.status !== 'verified') throw new ToolError('illegal_transition', `${task.key} is ${task.status}; only verified tasks can be reopened.`);
+    const direct = unverifiedReviewAllowed(db, task);
+    if (task.status !== 'verified' && !direct) {
+      throw new ToolError('illegal_transition', `${task.key} is ${task.status}; only verified tasks${task.status === 'needs_verification' ? ' (or submitted ones, with verification off)' : ''} can be reopened.`);
+    }
     const attempt = latestSubmission(db, task.id);
     if (attempt) {
       db.prepare("UPDATE attempts SET review_decision = 'reject', review_findings = ?, reviewed_by = ? WHERE id = ?").run(findings, actor.id, attempt.id);
     }
     const to = afterUsedAttempt(db, task);
-    if (!canTransition(task.status, to, moverOf(actor))) throw new ToolError('illegal_transition', `${task.status} → ${to} is not allowed.`);
+    if (!direct && !canTransition(task.status, to, moverOf(actor))) throw new ToolError('illegal_transition', `${task.status} → ${to} is not allowed.`);
+    if (direct) supersedeRunningRuns(db, task.id, 'Reopened with verification off.');
     setStatus(db, task.id, task.status, to, actor, attempt?.id ?? null);
     return { task_id: task.id, status: to };
   }).immediate();
@@ -604,15 +681,20 @@ export interface AwaitingAcceptance {
   hint: string;
 }
 
-// Verified work waiting for a human, for the session brief.
+// Work waiting for a human, for the session brief: verified tasks, plus
+// submitted ones when the project's verification is off.
 export function awaitingAcceptance(db: Database.Database, projectId: string, kanbanBase: string | null): AwaitingAcceptance {
+  const statuses = verificationMode(db, projectId) === 'off' ? "('verified', 'needs_verification')" : "('verified')";
+  // Waiting since the verifier passed it, or else since it was submitted.
   const rows = db.prepare(
-    `SELECT t.id AS task_id, p.slug || '-' || t.seq AS key, t.title, t.spec_id,
-       (julianday('now') - julianday(COALESCE(r.ended_at, t.updated_at))) * 24 AS waiting_hours
-     FROM tasks t JOIN projects p ON p.id = t.project_id
-     LEFT JOIN verification_runs r ON r.id = t.verified_run_id
-     WHERE t.project_id = ? AND t.status = 'verified'
-     ORDER BY COALESCE(r.ended_at, t.updated_at) ASC`,
+    `SELECT task_id, key, title, spec_id, (julianday('now') - julianday(since)) * 24 AS waiting_hours FROM (
+       SELECT t.id AS task_id, p.slug || '-' || t.seq AS key, t.title, t.spec_id, COALESCE(
+         (SELECT ended_at FROM verification_runs WHERE id = t.verified_run_id),
+         (SELECT ended_at FROM attempts WHERE task_id = t.id AND outcome = 'submitted' ORDER BY attempt_no DESC LIMIT 1),
+         t.updated_at) AS since
+       FROM tasks t JOIN projects p ON p.id = t.project_id
+       WHERE t.project_id = ? AND t.status IN ${statuses})
+     ORDER BY since ASC`,
   ).all(projectId) as { task_id: string; key: string; title: string; spec_id: string | null; waiting_hours: number }[];
   const low_risk: AwaitingTask[] = [];
   const needs_ui: AwaitingTask[] = [];

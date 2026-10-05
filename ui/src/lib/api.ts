@@ -1,5 +1,5 @@
 import type {
-  Project, Task, Note, Decision, TaskHistoryEvent, DeliveryMetrics, TaskVerification, Verifier, Resolution,
+  Project, Task, Note, Decision, TaskHistoryEvent, DeliveryMetrics, TaskVerification, Verifier, Resolution, VerificationSetup,
 } from './types.js';
 
 // The server embeds a per-start token in the page it serves; writes without
@@ -94,4 +94,9 @@ export const api = {
 
   setVerifierConfig: (projectId: string, config: unknown) =>
     request<Record<string, unknown>>(`/projects/${projectId}/verifier-config`, { method: 'PUT', body: JSON.stringify(config) }),
+
+  getVerificationSetup: (projectId: string) => request<VerificationSetup>(`/projects/${projectId}/verification`),
+
+  setVerificationMode: (projectId: string, mode: 'on' | 'off') =>
+    request<VerificationSetup>(`/projects/${projectId}/verification`, { method: 'PUT', body: JSON.stringify({ mode }) }),
 };

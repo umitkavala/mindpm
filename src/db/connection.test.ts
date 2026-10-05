@@ -121,7 +121,7 @@ describe('backup before the Phase 2 migration', () => {
       ALTER TABLE attempts DROP COLUMN verification_outcome; ALTER TABLE attempts DROP COLUMN verification_findings;
       ALTER TABLE attempts DROP COLUMN self_report_mismatch; ALTER TABLE attempts DROP COLUMN consecutive_errors;
       ALTER TABLE tasks DROP COLUMN verified_run_id; ALTER TABLE projects DROP COLUMN verifier_config;
-      ALTER TABLE task_history DROP COLUMN verifier_id;
+      ALTER TABLE task_history DROP COLUMN verifier_id; ALTER TABLE projects DROP COLUMN verification; DROP TABLE project_history;
       INSERT INTO projects (id, name, slug) VALUES ('p1', 'P', 'p');
       INSERT INTO tasks (id, project_id, seq, title, status) VALUES ('t1', 'p1', 1, 'Submitted', 'needs_verification');
       INSERT INTO attempts (id, task_id, attempt_no, actor, claim_token, outcome, head_sha) VALUES ('a1', 't1', 1, 'agent:cli-a', 'tok', 'submitted', 'abcdef1');
@@ -142,5 +142,55 @@ describe('backup before the Phase 2 migration', () => {
     expect(db.prepare("SELECT COUNT(*) AS n FROM verifiers").get()).toEqual({ n: 0 });
     closeDb();
     expect(statusOf(path)).toBe('needs_verification');
+  });
+});
+
+describe('the 3.1 migration: verification becomes opt-in per project', () => {
+  // A 3.0 database: the gate is always on and there is no per-project setting.
+  function v3Db(path: string, keys: { kind: string; project_ids: string[]; revoked?: boolean }[]): void {
+    process.env.MINDPM_DB_PATH = path;
+    getDb();
+    closeDb();
+    const db = new Database(path);
+    db.exec(`
+      ALTER TABLE projects DROP COLUMN verification; DROP TABLE project_history;
+      INSERT INTO projects (id, name, slug) VALUES ('p1', 'Covered', 'p1'), ('p2', 'Revoked key', 'p2'), ('p3', 'Reviewer only', 'p3'), ('p4', 'None', 'p4');
+    `);
+    const insert = db.prepare(
+      "INSERT INTO verifiers (id, name, kind, key_hash, project_ids, created_by, revoked_at) VALUES (?, ?, ?, ?, ?, 'human:ui', ?)",
+    );
+    keys.forEach((k, i) => insert.run(`v${i}`, `v${i}`, k.kind, `hash${i}`, JSON.stringify(k.project_ids), k.revoked ? '2026-10-01' : null));
+    db.close();
+  }
+
+  const modes = (db: Database.Database) =>
+    Object.fromEntries((db.prepare('SELECT id, verification FROM projects ORDER BY id').all() as { id: string; verification: string }[]).map(r => [r.id, r.verification]));
+
+  it('turns it on only where an active local key covers the project, and backs up first', () => {
+    const path = join(dir, 'memory.db');
+    v3Db(path, [
+      { kind: 'local', project_ids: ['p1'] },
+      { kind: 'local', project_ids: ['p2'], revoked: true },
+      { kind: 'reviewer', project_ids: ['p3'] },
+    ]);
+    const db = getDb();
+    expect(existsSync(`${path}.pre-3.1.0`)).toBe(true);
+    expect(modes(db)).toEqual({ p1: 'on', p2: 'off', p3: 'off', p4: 'off' });
+    expect(db.prepare('SELECT project_id, new_value, actor FROM project_history').all())
+      .toEqual([{ project_id: 'p1', new_value: 'on', actor: 'system:migration' }]);
+  });
+
+  it('turns it on everywhere for a key that covers all projects', () => {
+    const path = join(dir, 'memory.db');
+    v3Db(path, [{ kind: 'local', project_ids: ['*'] }]);
+    expect(modes(getDb())).toEqual({ p1: 'on', p2: 'on', p3: 'on', p4: 'on' });
+  });
+
+  it('runs once: a later start keeps what the human chose', () => {
+    const path = join(dir, 'memory.db');
+    v3Db(path, [{ kind: 'local', project_ids: ['p1'] }]);
+    getDb().prepare("UPDATE projects SET verification = 'off' WHERE id = 'p1'").run();
+    closeDb();
+    expect(modes(getDb()).p1).toBe('off');
   });
 });

@@ -7,11 +7,14 @@
     subtaskCount?: number;
     // Grouped board: a lane holds several statuses, so the card names its own.
     showChip?: boolean;
-    // Review lane: low-risk verified cards join the batch accept.
+    // Review lane: low-risk verified cards (and, with verification off,
+    // low-risk submitted ones) join the batch accept.
     batch?: { checked: boolean; onToggle: (task: Task) => void };
     onAccept?: (task: Task) => void;
     onReopen?: (task: Task) => void;
     onResolve?: (task: Task) => void;
+    // Verification is off: a submitted card waits for the human, not a verifier.
+    reviewDirect?: boolean;
     blockerKeys?: string[];
     onEdit: (task: Task) => void;
     onDelete: (task: Task) => void;
@@ -19,7 +22,7 @@
   }
 
   let {
-    task, subtaskCount = 0, showChip = false, batch, onAccept, onReopen, onResolve, blockerKeys = [], onEdit, onDelete, onDragStart,
+    task, subtaskCount = 0, showChip = false, batch, onAccept, onReopen, onResolve, reviewDirect = false, blockerKeys = [], onEdit, onDelete, onDragStart,
   }: Props = $props();
 
   const question = $derived.by(() => {
@@ -79,7 +82,7 @@
 >
   <div class="card-header">
     {#if showChip}
-      <span class="chip chip-{task.status}">{STATUS_CHIP[task.status]}</span>
+      <span class="chip chip-{task.status}">{reviewDirect ? 'SUBMITTED' : STATUS_CHIP[task.status]}</span>
     {:else}
       <span class="priority-badge {priorityClass}">{task.priority}</span>
     {/if}
@@ -108,7 +111,7 @@
   {#if task.status === 'claimed' && task.claimed_by}
     <div class="card-extra">{task.claimed_by}{task.attempt_no ? ` · attempt ${task.attempt_no} of ${task.max_attempts ?? 3}` : ''}</div>
   {:else if task.status === 'needs_verification'}
-    <div class="card-extra">{task.running_verifier ? `${task.running_verifier} running` : 'waiting for a verifier'}</div>
+    <div class="card-extra">{task.running_verifier ? `${task.running_verifier} running` : reviewDirect ? 'waiting for your review' : 'waiting for a verifier'}</div>
   {:else if task.status === 'blocked' && blockerKeys.length}
     <div class="card-extra">waiting on {blockerKeys.join(', ')}</div>
   {:else if task.status === 'needs_human' && question}

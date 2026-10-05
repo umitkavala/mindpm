@@ -1,6 +1,6 @@
 {
   "name": "mindpm",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "Project memory and a control plane for AI coding agents, over MCP.",
   "type": "module",
   "main": "dist/index.js",
@@ -15,6 +15,7 @@
     "dev": "tsup src/index.ts --format esm --watch",
     "dev:ui": "cd ui && npm run dev",
     "start": "node dist/index.js",
+    "preview": "node scripts/preview.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",

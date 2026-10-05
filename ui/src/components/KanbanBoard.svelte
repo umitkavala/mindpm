@@ -47,7 +47,7 @@
 
   // Non-fatal messages (a refused move or accept) shown above the board.
   let notice: string | null = $state(null);
-  // Low-risk verified cards are in the batch unless unchecked.
+  // Low-risk acceptable cards are in the batch unless unchecked.
   let batchExcluded = $state(new Set<string>());
 
   let tasks: Task[] = $state([]);
@@ -159,8 +159,13 @@
     })),
   );
 
+  // With verification off, a human accepts submitted work straight from
+  // needs_verification under the same risk rules as verified work.
+  const verificationOff = $derived(project.verification !== 'on');
+  const acceptable = (t: Task) => t.status === 'verified' || (verificationOff && t.status === 'needs_verification');
+
   const lowRiskBatch = $derived(
-    lanes.find((l) => l.id === 'review')!.tasks.filter((t) => t.status === 'verified' && t.risk_level === 'low' && !batchExcluded.has(t.id)),
+    lanes.find((l) => l.id === 'review')!.tasks.filter((t) => acceptable(t) && t.risk_level === 'low' && !batchExcluded.has(t.id)),
   );
 
   const keyOf = $derived(new Map(tasks.map((t) => [t.id, t.short_id ?? t.id])));
@@ -174,8 +179,10 @@
   }
 
   function cardExtras(t: Task) {
-    if (t.status === 'verified' && t.risk_level === 'low') {
+    const reviewDirect = verificationOff && t.status === 'needs_verification';
+    if (acceptable(t) && t.risk_level === 'low') {
       return {
+        reviewDirect,
         batch: {
           checked: !batchExcluded.has(t.id),
           onToggle: (task: Task) => {
@@ -186,7 +193,7 @@
         },
       };
     }
-    if (t.status === 'verified') return { onAccept: acceptOne, onReopen: openEditModal };
+    if (acceptable(t)) return { reviewDirect, onAccept: acceptOne, onReopen: openEditModal };
     if (t.status === 'needs_human') return { onResolve: openEditModal };
     if (t.status === 'blocked') return { blockerKeys: blockerKeys(t) };
     return {};
@@ -377,7 +384,8 @@
   }
 
   // A lane holds several statuses, so a drop maps to the one human move the
-  // lane allows: Done accepts verified work, Planned requeues a needs_human
+  // lane allows: Done accepts verified work (or submitted work, with
+  // verification off), Planned requeues a needs_human
   // task. Anything else goes through the card's actions.
   async function handleLaneDrop(lane: LaneId) {
     const task = draggedTask;
@@ -387,7 +395,7 @@
     if (from === lane) return;
     notice = null;
     try {
-      if (lane === 'done' && task.status === 'verified') {
+      if (lane === 'done' && acceptable(task)) {
         await api.acceptTask(task.id);
       } else if (lane === 'planned' && task.status === 'needs_human') {
         await api.resolveTask(task.id, 'requeue', 'Requeued from the board.');

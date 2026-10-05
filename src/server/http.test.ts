@@ -99,6 +99,12 @@ describe('the running server', () => {
     expect((getTestDb().prepare("SELECT status FROM tasks WHERE id = 't1'").get() as any).status).toBe('needs_verification');
   });
 
+  it('refuses to switch verification without the UI token', async () => {
+    const res = await send('PUT', '/api/projects/p1/verification', { host: `localhost:${port}`, origin: `http://localhost:${port}`, 'content-type': 'application/json' });
+    expect(res.status).toBe(403);
+    expect((getTestDb().prepare("SELECT verification FROM projects WHERE id = 'p1'").get() as any).verification).toBe('off');
+  });
+
   it('refuses reads addressed to another host name (DNS rebinding)', async () => {
     expect((await send('GET', '/api/projects', { host: `attacker.example:${port}` })).status).toBe(403);
     expect((await send('GET', '/api/projects', { host: `localhost:${port}` })).status).toBe(200);
