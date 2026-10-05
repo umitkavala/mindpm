@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 3.2.0
 
 Fixes from a dry run of the agent workflow on a small demo project.
 
